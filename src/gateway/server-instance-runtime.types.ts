@@ -13,6 +13,7 @@ import type { AgentRunRequest } from "./server-methods/agent-request-types.js";
 export type GatewayInstanceAgentDispatchOptions = {
   /** Exact source custody to re-admit; the instance reads its private durable record itself. */
   restartRecoveryOperatorTarget?: import("./operator-run-recovery.js").OperatorRecoveryTarget;
+  restartRecoveryRequesterTarget?: import("./operator-run-recovery.js").OperatorRecoveryTarget;
   assertAdmissionCurrent?: () => void;
   /** Refresh source facts immediately before dispatch; the accepted turn owns execution. */
   prepareDispatchCurrent?: () => Promise<void>;

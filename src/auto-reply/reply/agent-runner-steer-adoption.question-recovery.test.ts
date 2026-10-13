@@ -24,7 +24,6 @@ import { runReplyAgent } from "./agent-runner-run.js";
 import { runActiveReplySteer } from "./agent-runner-steer-adoption.js";
 import { MessageInjectionTargetUnavailableError } from "./message-injection-authority.js";
 import { enqueueFollowupRun, type FollowupRun } from "./queue.js";
-import { createQueueTestRun } from "./queue.test-helpers.js";
 import { clearFollowupDrainCallback } from "./queue/drain.js";
 import { clearFollowupQueue, getExistingFollowupQueue } from "./queue/state.js";
 import {
@@ -34,6 +33,7 @@ import {
 import { withQuestionCreator } from "./reply-run-question.test-support.js";
 import type { ReplyBackendQueueMessageResult } from "./reply-run-registry.contracts.js";
 import { replyRunRegistry } from "./reply-run-registry.js";
+import { createQueueTestRun } from "./reply-tool-authority.test-support.js";
 import { prepareSteeringDelivery } from "./steering-delivery-preparation.js";
 import { createMockTypingController } from "./test-helpers.js";
 import { createTypingSignaler } from "./typing-mode.js";
@@ -472,7 +472,7 @@ describe("question response custody through reply adoption", () => {
             commandBody: text,
             followupRun: incoming,
             sessionKey: key,
-            sessionCtx: { Provider: "webchat" },
+            sessionCtx: { Provider: "webchat", SenderId: run.run.senderId },
             sessionEntry:
               change === "permission"
                 ? { sessionId: run.run.sessionId, updatedAt: 0, permissionMode: "guarded" }
@@ -716,7 +716,10 @@ describe("question response custody through reply adoption", () => {
                   shouldFollowup: false,
                   isActive: true,
                   typing,
-                  sessionCtx: {},
+                  sessionCtx: {
+                    Provider: run.run.messageProvider,
+                    SenderId: run.run.senderId,
+                  },
                   sessionKey: key,
                   defaultModel: "openai/gpt-test",
                   resolvedVerboseLevel: "off",

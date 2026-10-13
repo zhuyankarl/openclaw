@@ -52,6 +52,7 @@ import { dispatchGatewayMethodInProcess } from "./subagent-announce.runtime.js";
 export async function runAnnounceAgentCall(params: {
   agentParams: Record<string, unknown>;
   privateCompletion?: true;
+  agentToolCaller?: import("../../../gateway/server-methods/client-types.js").TrustedAgentToolCaller;
   typing?: Omit<GatewayRecoveryTypingParams, "isCurrent">;
   settleWakeSourceSessionKeys?: readonly string[];
   delegatedToolPolicyHandoff?: SubagentCompletionToolHandoffRegistration;
@@ -93,6 +94,7 @@ export async function runAnnounceAgentCall(params: {
     const dispatch = dispatchGatewayMethodInProcess("agent", params.agentParams, {
       cancelOnDeadline: true,
       privateCompletion: params.privateCompletion,
+      agentToolCaller: params.agentToolCaller,
       settleWakeReplay: params.settleWakeSourceSessionKeys
         ? {
             sourceSessionKeys: params.settleWakeSourceSessionKeys,

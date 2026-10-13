@@ -8,10 +8,10 @@ import { readSessionEntryReadOnlyInWorker } from "../../config/sessions/session-
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
-import { resolveGroupToolPolicy } from "../agent-tools.policy.js";
 import { resolveConversationCapabilityProfile } from "../conversation-capability-profile.js";
 import type { EmbeddedRunAttemptParams } from "../embedded-agent-runner/run/types.js";
 import { resolveExecConfigState } from "../exec-defaults.js";
+import { resolveRequesterConversationToolPolicy } from "../requester-tool-policy.js";
 import {
   resolveSandboxRuntimeStatus,
   withSandboxRuntimeStatusInWorker,
@@ -331,6 +331,12 @@ type PluginHarnessToolPolicyContext = Pick<
   | "messageProvider"
   | "messageChannel"
   | "conversationToolPolicy"
+  | "requesterOrigin"
+  | "operatorProfileId"
+  | "conversationId"
+  | "chatType"
+  | "messageThreadId"
+  | "memberRoleIds"
   | "spawnedBy"
   | "groupId"
   | "groupChannel"
@@ -485,6 +491,12 @@ export function resolvePluginHarnessToolPolicies(
     messageProvider,
     messageChannel: params.messageChannel,
     conversationToolPolicy: params.conversationToolPolicy,
+    requesterOrigin: params.requesterOrigin,
+    operatorProfileId: params.operatorProfileId,
+    conversationId: params.conversationId,
+    chatType: params.chatType,
+    messageThreadId: params.messageThreadId,
+    memberRoleIds: params.memberRoleIds,
     agentAccountId: params.agentAccountId,
     groupId: params.groupId,
     groupChannel: params.groupChannel,
@@ -506,6 +518,9 @@ export function resolvePluginHarnessToolPolicies(
     channel: messageProvider,
   });
   const groupPolicyParams = {
+    requesterOrigin: params.requesterOrigin,
+    conversationId: params.conversationId,
+    chatType: params.chatType,
     config: params.config,
     sessionKey: params.scheduledToolPolicy?.ownerSessionKey ?? params.sessionKey,
     spawnedBy: params.spawnedBy,
@@ -514,7 +529,7 @@ export function resolvePluginHarnessToolPolicies(
     groupChannel: params.groupChannel,
     groupSpace: params.groupSpace,
     accountId: params.scheduledToolPolicy?.ownerAccountId ?? params.agentAccountId,
-    requireConfiguredAccount: params.scheduledToolPolicy?.mode === "account",
+    requireConfiguredGroupAccount: params.scheduledToolPolicy?.mode === "account",
     senderId: params.senderId,
     senderName: params.senderName,
     senderUsername: params.senderUsername,
@@ -618,14 +633,23 @@ function toolPolicyRestrictsHarnessNativeTools(
 
 function resolveSenderScopedGroupToolPolicy(
   params: PluginHarnessToolPolicyContext,
-  groupPolicyParams: Parameters<typeof resolveGroupToolPolicy>[0],
+  groupPolicyParams: Parameters<typeof resolveRequesterConversationToolPolicy>[0],
   groupPolicy: { deny?: string[] } | undefined,
 ): { deny?: string[] } | undefined {
   if (!policyDeniesAllTools(groupPolicy) || !hasSenderIdentity(params)) {
     return undefined;
   }
-  const groupPolicyWithoutSender = resolveGroupToolPolicy({
+  const groupPolicyWithoutSender = resolveRequesterConversationToolPolicy({
     ...groupPolicyParams,
+    requesterOrigin: params.requesterOrigin
+      ? {
+          ...params.requesterOrigin,
+          senderId: undefined,
+          senderName: undefined,
+          senderUsername: undefined,
+          senderE164: undefined,
+        }
+      : undefined,
     senderId: undefined,
     senderName: undefined,
     senderUsername: undefined,
@@ -635,11 +659,12 @@ function resolveSenderScopedGroupToolPolicy(
 }
 
 function hasSenderIdentity(params: PluginHarnessToolPolicyContext): boolean {
+  const requester = params.requesterOrigin ?? params;
   return Boolean(
-    params.senderId?.trim() ||
-    params.senderName?.trim() ||
-    params.senderUsername?.trim() ||
-    params.senderE164?.trim(),
+    requester.senderId?.trim() ||
+    requester.senderName?.trim() ||
+    requester.senderUsername?.trim() ||
+    requester.senderE164?.trim(),
   );
 }
 

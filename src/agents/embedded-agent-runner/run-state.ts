@@ -5,6 +5,7 @@ import type {
 } from "../../auto-reply/get-reply-options.types.js";
 import type {
   ReplyBackendQueueMessageOptions,
+  ReplyMessageInjectionOptions,
   ReplyToolAuthorityOverlay,
   ReplyTurnParticipants,
   ReplyBackendQueueMessageResult,
@@ -25,6 +26,7 @@ import type { DiagnosticEmbeddedRunOwner } from "../../logging/diagnostic-run-ac
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import type { OperationalRunInstanceRef } from "../admitted-run-context.js";
 import type { ReplyExpectation } from "../reply-completion.js";
+import type { RequesterOrigin } from "../requester-origin.js";
 import {
   clearActiveRunSessionIndex,
   normalizeSessionFileRegistryKey,
@@ -120,6 +122,7 @@ export type EmbeddedAgentQueueFailureReason =
   | "not_streaming"
   | "stale_run"
   | "compacting"
+  | "requester_origin_mismatch"
   | "tool_authority_mismatch"
   | "image_input_unsupported"
   | "source_reply_delivery_mode_mismatch"
@@ -130,6 +133,11 @@ export type EmbeddedAgentQueueFailureReason =
   | "runtime_rejected";
 
 export type EmbeddedAgentQueueMessageOptions = ReplyBackendQueueMessageOptions;
+
+export type EmbeddedAgentMessageInjectionOptions = ReplyMessageInjectionOptions & {
+  /** Consumed by the embedded run owner, never forwarded to its backend. */
+  requesterOrigin?: RequesterOrigin;
+};
 
 export type PreparedEmbeddedAgentQueueMessage =
   | {
@@ -166,6 +174,7 @@ export type EmbeddedRunToolAuthorityBinding = (registration: {
 }) => {
   source: "reply" | "attempt";
   sourceTurnId?: string;
+  acceptsRequesterOrigin: (origin: RequesterOrigin) => boolean;
   project: (overlay: ReplyToolAuthorityOverlay) => string | undefined;
   projectAsync: (overlay: ReplyToolAuthorityOverlay) => Promise<string | undefined>;
   assertActive: () => void;

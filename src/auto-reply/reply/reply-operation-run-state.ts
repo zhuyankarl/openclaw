@@ -3,6 +3,7 @@ import type { EmbeddedAgentRunResult } from "../../agents/embedded-agent-runner/
 import type { ReplyCompletion } from "../../agents/reply-completion.js";
 import type { ReplyPayload } from "../../shared/reply-payload.types.js";
 import { resolveAgentTurnExecutionStatus } from "./agent-runner-execution-status.js";
+import type { FollowupQueueDisposition } from "./queue-policy.js";
 import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatch-outcome.js";
 import { isReplyOperationSuperseded } from "./reply-operation-abort.js";
 import type { ReplyOperation } from "./reply-run-registry.js";
@@ -10,7 +11,7 @@ import type { SessionEventExecution } from "./session-event-contract.js";
 
 type ReplyOperationAdmissionSnapshot =
   | { status: "owned" }
-  | { status: "accepted"; mode: "steer" | "followup" }
+  | { status: "accepted"; mode: "steer" | "followup"; reason?: "requester-mismatch" }
   | {
       status: "skipped";
       reason:
@@ -47,6 +48,8 @@ export type ReplyOperationRunState = {
     }>;
   };
   admission?: ReplyOperationAdmissionSnapshot;
+  /** Latest queue-owned disposition; original acceptance still records custody. */
+  followupQueueDisposition?: FollowupQueueDisposition;
   /** The Gateway accepted this question answer or rejected its values before commitment. */
   questionInputHandled?: true;
   messageInjectionAborted?: true;

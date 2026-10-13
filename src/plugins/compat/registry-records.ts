@@ -5,6 +5,7 @@ import { ASYNC_SQLITE_PREPARATION_COMPAT_RECORDS } from "./async-sqlite-preparat
 import { AUTH_ASYNC_COMPAT_RECORD } from "./auth-async-record.js";
 import { BINDING_PERSISTENCE_COMPAT_RECORDS } from "./binding-persistence-records.js";
 import { CHANNEL_PAIRING_COMPAT_RECORD } from "./channel-pairing-record.js";
+import { CHANNEL_PREPARED_TOOL_POLICY_COMPAT_RECORD } from "./channel-prepared-tool-policy-record.js";
 import { CRON_STORE_PATH_COMPAT_RECORD } from "./cron-store-path-record.js";
 import { DEPRECATION_MARKING_COMPAT_RECORDS } from "./deprecation-marking.js";
 import { MEDIA_LEGACY_PROJECTION_COMPAT_RECORD } from "./media-legacy-projection.js";
@@ -39,7 +40,14 @@ const ACTIVATION_HINT_METADATA = {
   tests: ["src/plugins/activation-planner.test.ts"],
 } as const;
 
-export const PLUGIN_COMPAT_RECORDS = [
+// Keep exact code names without publishing migration prose as literal types.
+function definePluginCompatRecords<const Code extends string>(
+  records: readonly PluginCompatRecord<Code>[],
+): readonly PluginCompatRecord<Code>[] {
+  return records;
+}
+
+export const PLUGIN_COMPAT_RECORDS = definePluginCompatRecords([
   ...PLUGIN_SDK_REMOVED_EXPORT_RECORDS,
   ...AGENT_HARNESS_COMPAT_RECORDS,
   AUTH_ASYNC_COMPAT_RECORD,
@@ -62,6 +70,7 @@ export const PLUGIN_COMPAT_RECORDS = [
   RUNTIME_CONFIG_COMPAT_RECORD,
   ASSISTANT_TEXT_PHASE_TERMINAL_HINT_COMPAT_RECORD,
   SESSION_TRANSCRIPT_VIEW_COMPAT_RECORD,
+  CHANNEL_PREPARED_TOOL_POLICY_COMPAT_RECORD,
   {
     code: "plugin-sdk-session-header-link",
     status: "deprecated",
@@ -700,4 +709,4 @@ export const PLUGIN_COMPAT_RECORDS = [
     diagnostics: ["setup registry runtime diagnostic"],
     tests: ["src/plugins/setup-registry.test.ts", "src/plugins/setup-registry.runtime.test.ts"],
   },
-] as const satisfies readonly PluginCompatRecord[];
+] as const satisfies readonly PluginCompatRecord[]);

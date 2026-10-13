@@ -91,6 +91,8 @@ export type ReplyToolAuthorityOverlay = Readonly<{
   chatType?: ChatType;
   agentAccountId?: string;
   conversationToolPolicy?: GroupToolPolicyConfig;
+  conversationId?: string;
+  messageThreadId?: string | number;
   groupId?: string;
   groupChannel?: string;
   groupSpace?: string;
@@ -121,6 +123,8 @@ type ReplyTurnParticipantInput = Pick<
 
 export type ReplyToolAuthoritySnapshot = Readonly<{
   close?(): void;
+  /** Authenticated requester of this execution; absent identities cannot steer. */
+  requesterPrincipalKey?: string;
   personalToolOwner?: ReplyTurnParticipantInput;
   /** Selection admitted before runtime fallback or hooks choose a concrete model. */
   requestedRoute?: ReplyToolAuthorityRoute;
@@ -364,6 +368,7 @@ type ReplyOperationResult =
   | { kind: "aborted"; code: ReplyOperationAbortCode };
 
 export type ReplyOperation = {
+  readonly requesterPrincipalKey?: string;
   readonly personalToolParticipants?: ReplyTurnParticipants;
   readonly key: string;
   readonly sessionId: string;

@@ -170,6 +170,7 @@ describe("AgentSession handoff adoption integration", () => {
         sessionId,
         sessionKey: queueKey,
         messageProvider: "telegram",
+        senderId: "handoff-requester",
       },
     });
     const activeOperation = createReplyOperation({

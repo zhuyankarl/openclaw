@@ -12,6 +12,7 @@ import {
   hasReplyPayloadSpeechContent,
   isReplyPayloadTerminalContent,
   markReplyPayloadAsTtsSupplement,
+  markReplyPayloadForSourceSuppressionDelivery,
   setReplyPayloadMetadata,
   type ReplyPayload,
 } from "../reply-payload.js";
@@ -70,6 +71,20 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
   throwIfDispatchOperationAborted();
   const finalResult = heartbeatReply ? heartbeatReply.reply : replyResult;
   const replies = Array.isArray(finalResult) ? finalResult : finalResult ? [finalResult] : [];
+  const queueAdmission = state.replyOperationRunState.admission;
+  let queuedRequesterNotice: ReplyPayload | undefined;
+  if (
+    queueAdmission?.status === "accepted" &&
+    queueAdmission.mode === "followup" &&
+    queueAdmission.reason === "requester-mismatch"
+  ) {
+    queuedRequesterNotice = markReplyPayloadForSourceSuppressionDelivery({
+      text: "Your message is queued for a new turn after the current turn finishes. It hasn’t changed the work already in progress.",
+      isStatusNotice: true,
+    });
+    setReplyPayloadMetadata(queuedRequesterNotice, { queueAdmissionNotice: true });
+    replies.push(queuedRequesterNotice);
+  }
   const pendingFinalDeliveryIdentity = replies
     .map((reply) => getReplyPayloadMetadata(reply)?.pendingFinalDeliveryCompletion)
     .find((completion) => completion !== undefined);
@@ -115,6 +130,14 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
     await state.flushPendingCommentaryProgress();
     for (const [replyIndex, reply] of replies.entries()) {
       throwIfDispatchOperationAborted();
+      // Progress and earlier final deliveries can wait while a later input evicts this followup.
+      if (
+        reply === queuedRequesterNotice &&
+        state.replyOperationRunState.followupQueueDisposition === "queue-cap-old"
+      ) {
+        reply.text =
+          "Your queued message was dropped because the session queue is full. It hasn’t changed the work already in progress. Please send it again after the current response finishes.";
+      }
       // Durable reasoning is a channel-owned lane; generic channels keep the
       // historical suppression unless they explicitly opt in.
       const laneSuppressed =

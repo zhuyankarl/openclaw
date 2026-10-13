@@ -1,9 +1,5 @@
 // Detached chat.send dispatch owns runtime delivery, post-dispatch persistence, and terminalization.
 import { performance } from "node:perf_hooks";
-import {
-  GATEWAY_CLIENT_CAPS,
-  hasGatewayClientCap,
-} from "../../../packages/gateway-protocol/src/client-info.js";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { classifyAgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
 import { resolveWebchatPromptCacheKey } from "../../agents/embedded-agent-runner/run/session-boundary-prompt-cache-key.js";
@@ -15,6 +11,7 @@ import type {
   ReplyDispatchRun,
 } from "../../auto-reply/get-reply-options.types.js";
 import { isReplyPayloadStatusNotice } from "../../auto-reply/reply-payload.js";
+import type { DispatchFromConfigResult } from "../../auto-reply/reply/dispatch-from-config.types.js";
 import { REPLY_ADMISSION_TICKET } from "../../auto-reply/reply/reply-admission-ticket.js";
 import { isInternalSourceReplyChannel } from "../../auto-reply/reply/source-reply-delivery-mode.js";
 import { readAgentRunTerminalOutcome } from "../../channels/turn/agent-run-terminal-outcome.js";
@@ -30,8 +27,6 @@ import { isOperatorUiClient } from "../../utils/message-channel.js";
 import { captureAgentJobSession, setGatewayDedupeEntry } from "../agent-turn/agent-job.js";
 import { updateChatRunProvider } from "../chat-abort.js";
 import { discardPreparedInboundMedia } from "../chat-attachments.js";
-import { chatRunBelongsToSelectedAgent } from "../chat-run-owner.js";
-import { tryResolveSessionCompatibilityOwnerAgentId } from "../session-request-agent.js";
 import { prepareGatewaySkillLibraryTurn } from "../skill-library-authoring.js";
 import { buildAbortedChatSendPayload } from "./chat-abort-authorization.js";
 import { broadcastChatDelta } from "./chat-broadcast.js";
@@ -55,6 +50,7 @@ import {
   waitForAcceptedChatSendRetry,
 } from "./chat-send-retry.js";
 import { finalizeChatSendSourceReplies } from "./chat-send-source-finalization.js";
+import { registerChatSendToolEventRecipients } from "./chat-send-tool-event-recipients.js";
 import { createChatSendTurnAdoptionLifecycle } from "./chat-send-turn-adoption.js";
 import { applyChatSendManagedMedia } from "./chat-send-user-turn.js";
 import {
@@ -244,7 +240,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     titleTurn.promise,
   );
   const dispatch = replyDispatch
-    .runAgentMediaTranscript(dispatchAdmission, () =>
+    .runAgentMediaTranscript<DispatchFromConfigResult>(dispatchAdmission, () =>
       measureDiagnosticsTimelineSpan(
         "gateway.chat_send.dispatch_inbound",
         async () => {
@@ -338,36 +334,10 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
               runId !== clientRunId ? { agentRunId: runId } : undefined,
               dispatchStartedAtMs,
             );
-            const connId = typeof client?.connId === "string" ? client.connId : undefined;
-            const wantsToolEvents = hasGatewayClientCap(
-              client?.connect?.caps,
-              GATEWAY_CLIENT_CAPS.TOOL_EVENTS,
+            registerChatSendToolEventRecipients(
+              { client, context, cfg, sessionKey, selectedAgent },
+              runId,
             );
-            if (connId && wantsToolEvents) {
-              context.registerToolEventRecipient(runId, connId);
-              // Register for any other active runs *in the same session* so
-              // late-joining clients (e.g. page refresh mid-response) receive
-              // in-progress tool events without leaking cross-session data.
-              const compatibilityOwnerAgentId = tryResolveSessionCompatibilityOwnerAgentId(
-                cfg,
-                sessionKey,
-              );
-              const selectedSessionAgentId = selectedAgent.agentId;
-              for (const [activeRunId, active] of context.chatAbortControllers) {
-                const sameSelectedAgent =
-                  selectedSessionAgentId !== undefined &&
-                  chatRunBelongsToSelectedAgent({
-                    agentId: active.agentId,
-                    sessionKey: active.sessionKey,
-                    defaultAgentId: compatibilityOwnerAgentId,
-                    selectedAgentId: selectedSessionAgentId,
-                  });
-                const sameSession = active.sessionKey === sessionKey && sameSelectedAgent;
-                if (activeRunId !== runId && sameSession) {
-                  context.registerToolEventRecipient(activeRunId, connId);
-                }
-              }
-            }
             return options?.completionSource;
           };
           const dispatchInbound = () => {
@@ -537,6 +507,20 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     )
     .then(async (dispatchResult) => {
       diagnostics.finish(queuedFollowup);
+      if (dispatchResult.deferredToActiveRun === "followup" && queuedFollowup.isEnqueued()) {
+        const notices = replyDispatch.deliveredReplies
+          .map(({ input }) => readChatSendReplyPayload(input))
+          .filter(isReplyPayloadStatusNotice);
+        if (notices.length > 0) {
+          await queuedFollowup.onQueuedFollowupReplyBatch({
+            kind: "queued-followup",
+            runId: clientRunId,
+            originatingChannel: admission.originatingRoute.originatingChannel,
+            payloads: notices,
+            completion: { kind: "progress" },
+          });
+        }
+      }
       if (acceptedMessageInjection || queuedFollowup.isEnqueued() || queuedFollowup.isTerminal()) {
         return;
       }

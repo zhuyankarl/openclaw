@@ -59,6 +59,11 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
         scopes: ["operator.admin"],
         assertCurrent: () => {},
       },
+      requesterOrigin: {
+        sessionKey: "agent:main:main",
+        senderId: "forged-owner",
+        senderIsOwner: true,
+      },
     };
 
     expectTypeOf<AgentCommandIngressOpts>().not.toHaveProperty("prepareAssistantTranscriptMessage");
@@ -78,6 +83,7 @@ describe("sanitizePublicAgentCommandIngressOpts", () => {
       prepareAssistantTranscriptMessage: undefined,
       internalDeliverySuppressErrors: undefined,
       operatorAuthority: undefined,
+      requesterOrigin: undefined,
     });
   });
 });

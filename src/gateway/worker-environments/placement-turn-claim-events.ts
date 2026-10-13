@@ -3,6 +3,7 @@ import type {
   AdmittedRunOperatorAuthority,
   OperationalRunInstanceRef,
 } from "../../agents/admitted-run-context.js";
+import { captureRequesterOrigin, type RequesterOrigin } from "../../agents/requester-origin.js";
 import type { BoundAgentRunSessionTarget } from "../../agents/run-session-target.types.js";
 import type { ExecutionIdentityAdmissionToken } from "../../audit/execution-identity-admission.js";
 import { composeSessionSourceAssertion } from "../../config/sessions/session-source-authority.js";
@@ -63,6 +64,8 @@ export type WorkerTurnExecutionIdentity = Readonly<{
   executionIdentityToken?: ExecutionIdentityAdmissionToken;
   operationalRunInstance: OperationalRunInstanceRef;
   operatorAuthority?: AdmittedRunOperatorAuthority;
+  /** Authenticated requester facts remain on the host and confer no worker authority. */
+  requesterOrigin?: RequesterOrigin;
   /** Original presence reader, retained on the Gateway without a worker-writable claim. */
   assertPresenceSourceCurrent?: () => void;
   receiptAuthority: () => void;
@@ -160,6 +163,7 @@ export async function bindWorkerTurnOwner(
   operatorAuthority?: AdmittedRunOperatorAuthority,
   assertPresenceSourceCurrent?: () => void,
   promptCacheContext?: WorkerTurnPromptCacheContext,
+  requesterOrigin?: RequesterOrigin,
 ): Promise<
   Readonly<{
     capability: WorkerTurnExecutionIdentityCapability;
@@ -167,6 +171,9 @@ export async function bindWorkerTurnOwner(
   }>
 > {
   let claim = structuredClone(requestedClaim);
+  const preparedRequesterOrigin = requesterOrigin
+    ? captureRequesterOrigin({ requesterOrigin })
+    : undefined;
   const sessionTarget = Object.freeze(captureSessionTranscriptTargetBinding(requestedSource));
   const preparedPromptCacheContext = promptCacheContext
     ? Object.freeze({ ...promptCacheContext })
@@ -241,6 +248,7 @@ export async function bindWorkerTurnOwner(
     ...(token ? { executionIdentityToken: token } : {}),
     operationalRunInstance,
     ...(operatorAuthority ? { operatorAuthority } : {}),
+    ...(preparedRequesterOrigin ? { requesterOrigin: preparedRequesterOrigin } : {}),
     ...(assertPresenceSourceCurrent ? { assertPresenceSourceCurrent } : {}),
     receiptAuthority: assertActive,
     sessionKey: sessionTarget.sessionKey,

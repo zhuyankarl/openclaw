@@ -263,6 +263,7 @@ function reduceSessionEntryPatch(
               restartRecoveryBeforeAgentReplyState: undefined,
               restartRecoverySourceIngress: undefined,
               restartRecoveryOperatorSource: undefined,
+              restartRecoveryRequesterSource: undefined,
               restartRecoveryForceSafeTools: undefined,
             }),
         pendingFinalDelivery: undefined,

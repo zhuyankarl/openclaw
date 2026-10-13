@@ -36,10 +36,7 @@ import {
 } from "./bot/helpers.js";
 import { renderTelegramTextEntities } from "./bot/inbound-text-entities.js";
 import { resolveTelegramDirectPeerId } from "./dm-session-key.js";
-import {
-  resolveTelegramDirectToolPolicy,
-  resolveTelegramGroupPromptSettings,
-} from "./group-config-helpers.js";
+import { resolveTelegramGroupPromptSettings } from "./group-config-helpers.js";
 import {
   isTelegramChatWindowPromptContext,
   selectTelegramGroupPromptContext,
@@ -612,14 +609,6 @@ export async function buildTelegramInboundContextPayload(
       commands: {
         authorized: commandAuthorized,
       },
-      toolPolicy: isGroup
-        ? undefined
-        : resolveTelegramDirectToolPolicy({
-            directConfig: groupConfig,
-            senderId,
-            senderName,
-            senderUsername,
-          }),
       mentions: mentionFacts,
     },
     command:

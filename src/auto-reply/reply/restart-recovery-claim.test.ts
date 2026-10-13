@@ -888,6 +888,7 @@ describe("createReplyRestartRecoveryClaimController", () => {
       const scope = { storePath, sessionKey };
       const sessionId = "channel-session-id";
       const sourceTurnId = "telegram-update-new";
+      const requesterOrigin = { sessionKey, messageProvider: "telegram", senderId: "bob" };
       const deliveryContext = {
         channel: "telegram",
         to: "chat",
@@ -968,8 +969,10 @@ describe("createReplyRestartRecoveryClaimController", () => {
           entry = next;
         },
         sourceTurnId,
+        requesterOrigin,
         ...scope,
       });
+      requesterOrigin.senderId = "alice";
 
       if (change === "metadata") {
         await expect(controller.admitUserTurn(recorder)).resolves.toBe("admitted");
@@ -978,6 +981,13 @@ describe("createReplyRestartRecoveryClaimController", () => {
         expect(persisted).toMatchObject({
           model: "gpt-5.6-luna",
           restartRecoveryDeliverySourceRunId: sourceTurnId,
+          restartRecoveryRequesterSource: {
+            agentId: "main",
+            sessionKey,
+            sessionId,
+            sourceRunId: sourceTurnId,
+            requesterOrigin: { senderId: "bob" },
+          },
         });
         expect(persisted?.status).toBeUndefined();
       } else {

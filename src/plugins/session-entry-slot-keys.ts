@@ -82,6 +82,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "activeWriterRunId",
   "mainRestartRecovery",
   "restartRecoveryOperatorSource",
+  "restartRecoveryRequesterSource",
   "subagentRecovery",
   "pluginOwnerId",
   "systemSent",

@@ -21,17 +21,17 @@ import {
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getSessionWorkAdmissionRelease } from "../../sessions/session-lifecycle-admission.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
+import { ensureGatewayOwnerProfile } from "../../state/user-profiles.js";
 import { waitForChatAbortControllerRemoval } from "../chat-abort-lifecycle-internal.js";
 import type { ChatAbortControllerEntry } from "../chat-abort.js";
-import {
-  controlUiClient,
-  initializeRepository,
-} from "../server.sessions.create.projects.test-support.js";
+import { initializeRepository } from "../server.sessions.create.projects.test-support.js";
+import { createOperatorWsClient } from "../server/ws-connection/authenticated-request-dispatch.test-support.js";
 import { dispatchInboundMessageMock, testState } from "../test-helpers.js";
 import {
   directSessionReq,
   setupGatewaySessionsHandlerTestHarness,
 } from "../test/server-sessions.test-helpers.js";
+import type { GatewayClient } from "./types.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const { createSessionStoreDir } = setupGatewaySessionsHandlerTestHarness();
@@ -76,7 +76,12 @@ test.for(["accepted", "unavailable", "rejected"] as const)(
     let clock = 0;
     const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
     const logGateway = { ...createSubsystemLogger("test/gateway"), info: vi.fn() };
+    const clients = new Set<GatewayClient & { connId: string }>();
     const context = {
+      getClientConnIds: (filter?: (client: GatewayClient) => boolean) =>
+        new Set(
+          [...clients].filter((client) => !filter || filter(client)).map((client) => client.connId),
+        ),
       logGateway,
       chatAbortControllers: new Map<string, ChatAbortControllerEntry>(),
       chatQueuedTurns: new Map(),
@@ -95,7 +100,29 @@ test.for(["accepted", "unavailable", "rejected"] as const)(
         }
       }),
     };
-    const requestOptions = { ...controlUiClient, context };
+    const profile = ensureGatewayOwnerProfile("Gateway Owner");
+    const requestOptions = {
+      context,
+      client: {
+        ...createOperatorWsClient({
+          connId: "prestart-owner",
+          clientInfo: { id: "openclaw-control-ui", mode: "webchat" },
+          scopes: ["operator.write"],
+        }),
+        usesSharedGatewayAuth: true,
+        authenticatedUserProfile: {
+          profileId: profile.id,
+          displayName: profile.displayName,
+          hasAvatar: false,
+          updatedAt: profile.updatedAt,
+        },
+        internal: {
+          authenticatedOperator: true as const,
+          operatorRoleActor: { kind: "system" as const },
+        },
+      },
+    };
+    clients.add(requestOptions.client);
     const createWorktree = captureMethodCall("createWithOutcome")(ManagedWorktreeService.prototype);
     const worktreeSpy = vi
       .spyOn(ManagedWorktreeService.prototype, "createWithOutcome")
@@ -324,6 +351,7 @@ test.for(["accepted", "unavailable", "rejected"] as const)(
       initialOperation?.complete();
       releaseInitialRun.resolve();
       await released;
+      clients.clear();
       worktreeSpy.mockRestore();
       dispatchInboundMessageMock.mockReset();
       runtime.execute.mockReset();

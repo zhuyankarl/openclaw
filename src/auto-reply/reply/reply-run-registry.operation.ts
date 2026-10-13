@@ -330,6 +330,9 @@ export function createReplyOperation(params: {
     get toolAuthorityFingerprint() {
       return toolAuthority.toolAuthorityFingerprint;
     },
+    get requesterPrincipalKey() {
+      return toolAuthority.requesterPrincipalKey;
+    },
     get personalToolParticipants() {
       return toolAuthority.personalToolParticipants;
     },

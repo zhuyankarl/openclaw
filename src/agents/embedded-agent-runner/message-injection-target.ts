@@ -8,7 +8,6 @@ import {
   type ReplyBackendHandle,
   type ReplyMessageInjectionRejectionReason,
   type ReplyMessageInjectionTarget,
-  type ReplyMessageInjectionOptions,
   type ReplyToolAuthorityPreparation,
 } from "../../auto-reply/reply/reply-run-registry.contracts.js";
 import { resolveReplyBackendMessageInjectionRejection } from "../../auto-reply/reply/reply-run-registry.message-injection.js";
@@ -41,7 +40,9 @@ import {
   ACTIVE_EMBEDDED_RUNS_BY_RUN_ID,
   resolveActiveEmbeddedRunRecoveryBlocker,
   type EmbeddedAgentQueueHandle,
+  type EmbeddedAgentMessageInjectionOptions,
   type EmbeddedAgentQueueMessageOutcome,
+  type EmbeddedAgentQueueFailureReason,
 } from "./run-state.js";
 import { isEmbeddedRunHandleAbortable } from "./runs.probes.js";
 
@@ -227,7 +228,7 @@ export type EmbeddedInjectionPreparation = Pick<
 type EmbeddedInjectionTask = (
   sessionId: string,
   text: string,
-  options: ReplyMessageInjectionOptions | undefined,
+  options: EmbeddedAgentMessageInjectionOptions | undefined,
   canInject: (() => boolean) | undefined,
   sourcePreparation: EmbeddedInjectionPreparation | undefined,
   release: () => void,
@@ -238,7 +239,7 @@ export function createEmbeddedMessageInjectionQueue(consume: EmbeddedInjectionTa
   return (
     sessionId: string,
     text: string,
-    options?: ReplyMessageInjectionOptions,
+    options?: EmbeddedAgentMessageInjectionOptions,
     canInject?: () => boolean,
     sourcePreparation?: EmbeddedInjectionPreparation,
   ): Promise<EmbeddedAgentQueueMessageOutcome> => {
@@ -262,7 +263,7 @@ export function createEmbeddedMessageInjectionQueue(consume: EmbeddedInjectionTa
 
 export async function prepareEmbeddedInjectionAuthority(
   sessionId: string,
-  options?: ReplyMessageInjectionOptions,
+  options?: EmbeddedAgentMessageInjectionOptions,
   canInject?: () => boolean,
   sourcePreparation?: EmbeddedInjectionPreparation,
 ): Promise<{ fingerprint?: string; preparation: EmbeddedInjectionPreparation } | undefined> {
@@ -339,7 +340,7 @@ function bindEmbeddedMessageInjection(
   guarded: NonNullable<EmbeddedAgentQueueHandle["messageInjectionV2"]>,
   sourceCanInject?: () => boolean,
   preparation?: EmbeddedInjectionPreparation,
-  options?: ReplyMessageInjectionOptions,
+  options?: EmbeddedAgentMessageInjectionOptions,
 ): EmbeddedMessageInjection | undefined {
   const registration = ACTIVE_EMBEDDED_RUN_REGISTRATIONS.get(handle);
   const operation = resolveReplyRunForCurrentSessionId(sessionId);
@@ -350,6 +351,12 @@ function bindEmbeddedMessageInjection(
     preparation?.assertCurrent();
     preparation?.compatAssertCurrent?.();
     if (sourceCanInject && !sourceCanInject()) {
+      return false;
+    }
+    if (
+      options?.requesterOrigin &&
+      !registration?.toolAuthority?.acceptsRequesterOrigin(options.requesterOrigin)
+    ) {
       return false;
     }
     const overlay = options?.toolAuthorityOverlay;
@@ -401,7 +408,7 @@ export function resolveEmbeddedInjection(
   handle: EmbeddedAgentQueueHandle,
   sourceCanInject?: () => boolean,
   preparation?: EmbeddedInjectionPreparation,
-  injectionOptions?: ReplyMessageInjectionOptions,
+  injectionOptions?: EmbeddedAgentMessageInjectionOptions,
 ): EmbeddedMessageInjection | undefined {
   try {
     const guarded = handle.messageInjectionV2;
@@ -452,4 +459,28 @@ export function resolveEmbeddedInjection(
     );
     return undefined;
   }
+}
+
+export function createQueueFailureOutcome(
+  sessionId: string,
+  reason: EmbeddedAgentQueueFailureReason,
+  errorMessage?: string,
+): EmbeddedAgentQueueMessageOutcome {
+  return {
+    queued: false,
+    sessionId,
+    reason,
+    gatewayHealth: "live",
+    ...(errorMessage ? { errorMessage } : {}),
+  };
+}
+
+export function formatEmbeddedAgentQueueFailureSummary(
+  outcome: EmbeddedAgentQueueMessageOutcome,
+): string | undefined {
+  if (outcome.queued) {
+    return undefined;
+  }
+  const errorPart = outcome.errorMessage ? ` error=${outcome.errorMessage}` : "";
+  return `queue_message_failed reason=${outcome.reason} sessionId=${outcome.sessionId} gatewayHealth=${outcome.gatewayHealth}${errorPart}`;
 }

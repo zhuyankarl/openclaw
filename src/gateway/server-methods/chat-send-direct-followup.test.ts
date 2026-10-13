@@ -13,6 +13,7 @@ import {
   setActiveEmbeddedRun,
 } from "../../agents/embedded-agent-runner/runs.js";
 import { createEmbeddedRunHandle } from "../../agents/embedded-agent-runner/runs.test-support.js";
+import { captureRequesterOrigin, hasSameRequesterOrigin } from "../../agents/requester-origin.js";
 import { withGatewayToolCallerIdentity } from "../../agents/tools/gateway-caller-context.js";
 import type { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
 import type { executeAgentTurn } from "../../auto-reply/reply/agent-runner-execution.js";
@@ -73,6 +74,10 @@ it.for([
     fixture.context.getRuntimeConfig = () => config;
     const instance = createOperationalRunInstanceRef("announce:v1:synthetic-child");
     const authority = claimAgentRunDelegatedAuthority(instance);
+    const requesterOrigin = captureRequesterOrigin({
+      sessionKey: fixture.scope.sessionKey,
+      operatorProfileId: fixture.client.authenticatedUserProfile?.profileId,
+    })!;
     const injected = vi.fn(async () => {});
     const handle = {
       ...createEmbeddedRunHandle({
@@ -181,6 +186,8 @@ it.for([
               operationalRunInstance: instance,
               embeddedRunToolAuthorityBinding: () => ({
                 source: "attempt",
+                acceptsRequesterOrigin: (incoming) =>
+                  hasSameRequesterOrigin(requesterOrigin, incoming),
                 assertActive: () => {},
                 project: () => "human-tools",
                 projectAsync: async () => "human-tools",

@@ -14,7 +14,6 @@ import { runReplyAgent } from "./agent-runner-run.js";
 import * as followupRunner from "./followup-runner.js";
 import { createPersonalToolScreenDispatcher } from "./personal-tool-turn.test-support.js";
 import { getFollowupQueueDepth, type FollowupRun } from "./queue.js";
-import { createQueueTestRun } from "./queue.test-helpers.js";
 import { clearFollowupDrainCallback } from "./queue/drain.js";
 import { clearFollowupQueue } from "./queue/state.js";
 import {
@@ -25,6 +24,7 @@ import { createReplyOperation } from "./reply-run-registry.js";
 import * as registryState from "./reply-run-registry.state.js";
 import * as toolAuthority from "./reply-tool-authority.js";
 import { prepareReplyToolAuthority } from "./reply-tool-authority.js";
+import { createQueueTestRun } from "./reply-tool-authority.test-support.js";
 import { admitReplyTurn } from "./reply-turn-admission.js";
 import { createMockTypingController } from "./test-helpers.js";
 
@@ -365,8 +365,7 @@ describe("ordinary steering into automatic model fallback", () => {
         run.toolsAllow = ["read"];
       }
       const resultState: ReplyOperationRunState = {};
-      const shouldSteer =
-        scenario === "automatic" || scenario === "policy-fallback" || crossProfile;
+      const shouldSteer = scenario === "automatic" || scenario === "policy-fallback";
       if (crossProfile) {
         run.operatorAuthority = operator("bob");
         Object.assign(run.run, {
@@ -404,6 +403,7 @@ describe("ordinary steering into automatic model fallback", () => {
         expect(resultState.admission).toEqual({
           status: "accepted",
           mode: shouldSteer ? "steer" : "followup",
+          ...(crossProfile ? { reason: "requester-mismatch" } : {}),
         });
       }
       expect(delivered).toEqual(shouldSteer ? [run.prompt] : []);
@@ -416,21 +416,14 @@ describe("ordinary steering into automatic model fallback", () => {
             personalToolParticipants: operation.personalToolParticipants,
           },
           async () => {
-            const ambiguous = await dispatch();
-            expect(ambiguous.respond).toHaveBeenCalledWith(
-              false,
-              undefined,
-              expect.objectContaining({
-                message: expect.stringMatching(/Alice \(user: alice\).*Bob \(user: bob\)/),
-              }),
-            );
-            expect(ambiguous.broadcastToConnIds).not.toHaveBeenCalled();
-            const selected = await dispatch("bob");
-            expect(selected.broadcastToConnIds).toHaveBeenCalledWith(
+            const unchanged = await dispatch();
+            expect(unchanged.broadcastToConnIds).toHaveBeenCalledWith(
               "ui.command",
               expect.any(Object),
-              new Set(["bob-tab"]),
+              new Set(["alice-tab"]),
             );
+            const other = await dispatch("bob");
+            expect(other.broadcastToConnIds).not.toHaveBeenCalled();
           },
         );
       }

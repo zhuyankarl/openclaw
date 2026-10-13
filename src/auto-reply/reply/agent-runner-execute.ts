@@ -431,6 +431,7 @@ export function createReplyAgentRestartRecoveryController(
       return { actor, target };
     },
     operatorAuthority: followupRun.operatorAuthority,
+    requesterOrigin: followupRun.run.requesterOrigin,
     inputProvenance: followupRun.run.inputProvenance,
     lifecycleGeneration: replyOperation.lifecycleGeneration,
     admissionRunId,

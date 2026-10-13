@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
+import { createRestartRecoveryRequesterSource } from "../agents/requester-run-recovery-source.js";
 import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import {
   persistSessionTranscriptTurn,
@@ -30,6 +31,7 @@ import {
 } from "./device-revocation.js";
 import { retireDeviceTokenClients } from "./device-token-client-lifecycle.js";
 import { captureGatewayOperatorRunAuthority } from "./operator-run-authority.js";
+import { restoreGatewayRequesterRecovery } from "./operator-run-recovery.js";
 import { createOperatorRecoveryFixture } from "./operator-run-recovery.test-support.js";
 import { createContext } from "./server-plugin-in-process-dispatch.test-support.js";
 import {
@@ -57,6 +59,99 @@ function pairedOperator(): PairedDevice {
 }
 
 describe("restart recovery authenticated operator source", () => {
+  it("restores only the requester bound to the current durable source claim", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const profile = ensureProfileForEmail("requester-custody@example.test");
+      const fixture = await createOperatorRecoveryFixture({
+        stateDir: state.stateDir,
+        context: createContext(),
+        profileId: profile.id,
+        config: {},
+      });
+      let current = true;
+      const restore = () =>
+        restoreGatewayRequesterRecovery({
+          target: fixture.target,
+          assertCurrent: () => {
+            if (!current) {
+              throw new Error("recovery claim retired");
+            }
+          },
+        });
+      await expect(restore()).resolves.toBeUndefined();
+      const origin = {
+        sessionKey: "agent:research:telegram:group:requesters",
+        messageProvider: "telegram",
+        senderId: "bob",
+        memberRoleIds: ["member"],
+      };
+      const source = expectDefined(
+        createRestartRecoveryRequesterSource({
+          ...fixture.target,
+          entry: fixture.entry,
+          requesterOrigin: origin,
+        }),
+        "host-captured requester source",
+      );
+      const bound = { ...fixture.entry, restartRecoveryRequesterSource: source };
+      await replaceSessionEntry(fixture.target, bound);
+      origin.senderId = "alice";
+      origin.memberRoleIds.push("admin");
+      await expect(restore()).resolves.toMatchObject({
+        senderId: "bob",
+        memberRoleIds: ["member"],
+      });
+      const historical = structuredClone(source);
+      Object.assign(historical.requesterOrigin, {
+        senderIsOwner: true,
+        conversationToolPolicy: { allow: ["*"] },
+      });
+      await replaceSessionEntry(fixture.target, {
+        ...bound,
+        restartRecoveryRequesterSource: historical,
+      });
+      const restoredFacts = await restore();
+      expect(restoredFacts).not.toHaveProperty("senderIsOwner");
+      expect(restoredFacts).not.toHaveProperty("conversationToolPolicy");
+      for (const replacement of [
+        { ...source, sessionId: "copied-session" },
+        { ...source, sessionKey: "agent:main:copied" },
+        { ...source, sourceRunId: "copied-run" },
+        { ...source, lifecycleRevision: "replacement-lifecycle" },
+      ]) {
+        await replaceSessionEntry(fixture.target, {
+          ...bound,
+          restartRecoveryRequesterSource: replacement,
+        });
+        await expect(restore()).resolves.toBeUndefined();
+      }
+      for (const malformed of [
+        { ...source.requesterOrigin, sessionKey: "" },
+        { ...source.requesterOrigin, senderId: 7 },
+        { ...source.requesterOrigin, senderId: undefined },
+        { ...source.requesterOrigin, memberRoleIds: [7] },
+        { ...source.requesterOrigin, messageThreadId: {} },
+      ]) {
+        const invalid = structuredClone(source);
+        Reflect.set(invalid, "requesterOrigin", malformed);
+        await replaceSessionEntry(fixture.target, {
+          ...bound,
+          restartRecoveryRequesterSource: invalid,
+        });
+        await expect(restore()).resolves.toBeUndefined();
+      }
+      await replaceSessionEntry(fixture.target, {
+        ...bound,
+        restartRecoveryDeliveryRunId: "replacement-run",
+      });
+      await expect(restore()).rejects.toThrow("no longer owns this input");
+      await replaceSessionEntry(fixture.target, bound);
+      const pending = restore();
+      current = false;
+      await expect(pending).rejects.toThrow("recovery claim retired");
+    });
+  });
+
   it("keeps restored authority current during unrelated issuance", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       const profile = ensureProfileForEmail("publication-lifetime@example.test");

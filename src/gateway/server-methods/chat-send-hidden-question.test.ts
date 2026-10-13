@@ -1,5 +1,7 @@
 import path from "node:path";
 import { expect, it, vi } from "vitest";
+import { createAdmittedRunOperatorAuthority } from "../../agents/admitted-run-context.js";
+import { prepareOperatorModelPolicy } from "../../agents/operator-model-policy.js";
 import { createQueueTestRun } from "../../auto-reply/reply/queue.test-helpers.js";
 import type { ReplyBackendMessageInjectionV2 } from "../../auto-reply/reply/reply-run-registry.contracts.js";
 import {
@@ -52,6 +54,13 @@ it.each(
         },
       };
       const operation = createReplyOperation({ sessionKey, sessionId, resetTriggered: false });
+      owner.operatorAuthority = createAdmittedRunOperatorAuthority({
+        profileId: "question-owner",
+        scopes: ["operator.admin"],
+        gatewayAccessGrant: null,
+        modelPolicy: prepareOperatorModelPolicy({ cfg: {}, policy: {} }),
+        assertCurrent: () => operation.abortSignal.throwIfAborted(),
+      });
       await operation.bindToolAuthoritySnapshotAsync(prepareReplyToolAuthority(owner));
       const fingerprint = await operation.bindToolAuthorityRouteAsync({
         provider: owner.run.provider,
@@ -95,6 +104,7 @@ it.each(
         const start = createChatSendMessageInjectionStarter({
           target,
           abortSignal: operation.abortSignal,
+          operatorAuthority: owner.operatorAuthority,
           assertCurrent: () => operation.abortSignal.throwIfAborted(),
           request: {
             p: { sessionKey, message: text, idempotencyKey: "gateway-question-answer" },

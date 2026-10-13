@@ -1,6 +1,8 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement, createDeferred } from "../../test/helpers/promise.js";
+import { createRestartRecoveryRequesterSource } from "../agents/requester-run-recovery-source.js";
+import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import {
   getAgentEventLifecycleGeneration,
   resetAgentEventsForTest,
@@ -80,7 +82,7 @@ describe("typed restart recovery operator admission", () => {
             runtime.recovery.dispatchAgent(request, undefined, {
               restartRecoveryOperatorTarget: fixture.target,
             }),
-          ).rejects.toThrow("dispatch does not match its operator claim");
+          ).rejects.toThrow("dispatch does not match its source claim");
           expect(startTurn).not.toHaveBeenCalled();
         } finally {
           runtime.close();
@@ -89,9 +91,25 @@ describe("typed restart recovery operator admission", () => {
     },
   );
 
-  it.each(["authenticated operator", "legacy claim"] as const)(
-    "applies the actual admin-method fence to a %s principal",
-    async (source) => {
+  it.each([
+    { source: "authenticated operator", operator: true, requester: "absent", expected: "accepted" },
+    { source: "legacy claim", operator: false, requester: "absent", expected: "scope refusal" },
+    { source: "matching requester", operator: true, requester: "matching", expected: "accepted" },
+    {
+      source: "mismatched requester",
+      operator: true,
+      requester: "different",
+      expected: "identity refusal",
+    },
+    {
+      source: "requester without operator authority",
+      operator: false,
+      requester: "matching",
+      expected: "identity refusal",
+    },
+  ] as const)(
+    "applies recovery admission and the actual admin-method fence to $source",
+    async ({ operator, requester, expected }) => {
       await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
         const context = createDirectChatContext({ trackExecution: trackAsyncWork });
         const profile = ensureProfileForEmail("runtime-recovery@example.test");
@@ -101,6 +119,22 @@ describe("typed restart recovery operator admission", () => {
           profileId: profile.id,
           config: {},
         });
+        if (requester !== "absent") {
+          await replaceSessionEntry(fixture.target, {
+            ...fixture.entry,
+            restartRecoveryRequesterSource: expectDefined(
+              createRestartRecoveryRequesterSource({
+                ...fixture.target,
+                entry: fixture.entry,
+                requesterOrigin: {
+                  sessionKey: fixture.target.sessionKey,
+                  operatorProfileId: requester === "matching" ? profile.id : "another-requester",
+                },
+              }),
+              "host-captured requester source",
+            ),
+          });
+        }
         const registry = createGatewayMethodRegistry([
           {
             name: "cron.add",
@@ -115,6 +149,12 @@ describe("typed restart recovery operator admission", () => {
           isDispatchAvailable: () => true,
         });
         startTurn.mockImplementation(async ({ principal, io }) => {
+          if (requester === "matching") {
+            expect(principal?.internal?.agentToolCaller?.requesterOrigin).toMatchObject({
+              sessionKey: fixture.target.sessionKey,
+              operatorProfileId: profile.id,
+            });
+          }
           const authorization = authorizeGatewayMethod(
             "cron.add",
             principal,
@@ -136,15 +176,20 @@ describe("typed restart recovery operator admission", () => {
           idempotencyKey: fixture.target.recoveryRunId,
         };
         const options = {
-          restartRecoveryOperatorTarget:
-            source === "authenticated operator" ? fixture.target : undefined,
+          restartRecoveryOperatorTarget: operator ? fixture.target : undefined,
+          restartRecoveryRequesterTarget: requester !== "absent" ? fixture.target : undefined,
         };
         try {
           const result = runtime.recovery.dispatchAgent(request, undefined, options);
-          if (source === "authenticated operator") {
+          if (expected === "accepted") {
             await expect(result).resolves.toMatchObject({ status: "ok" });
+            expect(startTurn).toHaveBeenCalledOnce();
+          } else if (expected === "identity refusal") {
+            await expect(result).rejects.toThrow("requester has no matching operator authority");
+            expect(startTurn).not.toHaveBeenCalled();
           } else {
             await expect(result).rejects.toThrow("missing scope: operator.admin");
+            expect(startTurn).toHaveBeenCalledOnce();
           }
         } finally {
           runtime.close();
