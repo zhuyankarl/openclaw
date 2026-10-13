@@ -3,7 +3,7 @@ import { t } from "../i18n/index.ts";
 import { showToast } from "../lib/toast.ts";
 import { createPresenceActivityController } from "../lit/presence-activity-controller.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
-import { sidebarPresenceActivityViewers } from "./app-sidebar-presence.ts";
+import { sidebarPresenceActivityViewers, sidebarPresenceScope } from "./app-sidebar-presence.ts";
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import { PersonActivityDataController } from "./person-activity-data.ts";
 import type { SidebarPeopleRuntime } from "./sidebar-people.runtime.ts";
@@ -36,6 +36,7 @@ export class SidebarPeopleController implements ReactiveController {
 
   private runtime: SidebarPeopleRuntime | null = null;
   private readonly activityExpiry: ReturnType<typeof createPresenceActivityController>;
+  private activityScope = "";
   private loading: Promise<typeof import("./sidebar-people.runtime.ts")> | null = null;
   private generation = 0;
   private pendingTarget: HTMLElement | null = null;
@@ -70,7 +71,13 @@ export class SidebarPeopleController implements ReactiveController {
   }
 
   hostUpdated(): void {
-    this.activityExpiry.sync();
+    const { online, activityProfileIds } = sidebarPresenceScope(this.host);
+    const scope = JSON.stringify([online, ...Array.from(activityProfileIds).sort()]);
+    if (scope !== this.activityScope) {
+      this.activityScope = scope;
+      // New headers need deadlines; unchanged commits must retain pre-render wakeups.
+      this.activityExpiry.sync();
+    }
     this.runtime?.sync();
   }
 
