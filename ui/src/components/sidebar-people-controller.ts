@@ -1,8 +1,8 @@
 import type { ReactiveController } from "lit";
 import { t } from "../i18n/index.ts";
-import { projectPresencePayload } from "../lib/presence-users.ts";
 import { showToast } from "../lib/toast.ts";
 import { createPresenceActivityController } from "../lit/presence-activity-controller.ts";
+import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import { PersonActivityDataController } from "./person-activity-data.ts";
 import type { SidebarPeopleRuntime } from "./sidebar-people.runtime.ts";
@@ -42,7 +42,16 @@ export class SidebarPeopleController implements ReactiveController {
   constructor(private readonly host: AppSidebarSessionNavigationElement) {
     host.addController(this);
     this.activityExpiry = createPresenceActivityController(host, () =>
-      host.connected ? projectPresencePayload(host.sessionData.presencePayload).users : [],
+      host.connected ? host.presenceActivityViewers() : [],
+    );
+    new SubscriptionsController(host).effect(
+      () => host.sessionDataContext?.gateway,
+      (gateway) =>
+        gateway.subscribeEvents((event) => {
+          if (event.event === "presence") {
+            this.activityExpiry.sync();
+          }
+        }),
     );
     host.addController(
       new PersonActivityDataController(host, () => host.sessionDataContext, host.sessionData),
@@ -60,6 +69,7 @@ export class SidebarPeopleController implements ReactiveController {
   }
 
   hostUpdated(): void {
+    this.activityExpiry.sync();
     this.runtime?.sync();
   }
 
