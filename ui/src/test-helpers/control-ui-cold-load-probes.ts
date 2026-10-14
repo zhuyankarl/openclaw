@@ -77,7 +77,67 @@ export function installColdLoadProbes(input: {
   const chatOwners = new Map<HTMLElement, ChatOwnerRecord>();
   const chatLifecycle = new Map<string, Map<string, Map<string, { count: number; ms: number }>>>();
   const chatProducerStacks = new Map<string, number>();
-  const chatRequests = new Map<number, { tag: string; producer: string }>();
+  type LiveDeliveryOrigin = {
+    index: number;
+    kind: string;
+    event: string;
+    plannedAtMs: number;
+    queuedAtMs: number;
+    deliveredAtMs: number;
+  };
+  type FrameOrigin = {
+    id: number;
+    frameId: number;
+    scheduledAtMs: number;
+    schedulingStack: string;
+    delivery: LiveDeliveryOrigin | null;
+    parentId: number | null;
+  };
+  let activeLiveDelivery: LiveDeliveryOrigin | null = null;
+  let activeFrameOrigin: FrameOrigin | null = null;
+  const frameOrigins = new Map<number, FrameOrigin>();
+  const frameProbe = {
+    // oxlint-disable-next-line typescript/unbound-method -- Preserve the native function identity; the tap forwards its receiver and restores it.
+    original: window.requestAnimationFrame,
+    request(this: Window, callback: FrameRequestCallback): number {
+      if (frameOrigins.size >= 5000) {
+        throw new Error("Live frame scheduling origin limit exceeded");
+      }
+      const origin: FrameOrigin = {
+        id: frameOrigins.size + 1,
+        frameId: 0,
+        scheduledAtMs: performance.now() - liveStartedAt,
+        schedulingStack: new Error().stack?.split("\n").slice(2, 18).join(" <- ") ?? "",
+        delivery: activeLiveDelivery,
+        parentId: activeFrameOrigin?.id ?? null,
+      };
+      origin.frameId = frameProbe.original.call(this, function (this: unknown, timestamp: number) {
+        const previous = activeFrameOrigin;
+        activeFrameOrigin = liveStartedAt && !liveFinishedAt ? origin : null;
+        try {
+          callback.call(this, timestamp);
+        } finally {
+          activeFrameOrigin = previous;
+        }
+      });
+      frameOrigins.set(origin.id, origin);
+      return origin.frameId;
+    },
+    install() {
+      // oxlint-disable-next-line typescript/unbound-method -- Install the native-receiver tap on Window, matching requestAnimationFrame's call boundary.
+      window.requestAnimationFrame = frameProbe.request;
+    },
+    restore() {
+      // oxlint-disable-next-line typescript/unbound-method -- Compare function identity so restoration cannot overwrite another instrumentation owner.
+      if (window.requestAnimationFrame === frameProbe.request) {
+        window.requestAnimationFrame = frameProbe.original;
+      }
+    },
+  };
+  const chatRequests = new Map<
+    number,
+    { tag: string; producer: string; frameOriginId: number | null }
+  >();
   let previousChatHook: unknown;
   let previousChatHookDescriptor: PropertyDescriptor | undefined;
   const chatPasses: Array<{
@@ -143,7 +203,12 @@ export function installColdLoadProbes(input: {
           throw new Error("Live chat owner request limit exceeded");
         }
         const id = chatRequests.size + 1;
-        chatRequests.set(id, { tag: record.host.localName, producer: key });
+        chatRequests.set(id, {
+          tag: record.host.localName,
+          producer: key,
+          // Null includes callbacks queued before live instrumentation; never infer their caller.
+          frameOriginId: activeFrameOrigin?.id ?? null,
+        });
         record.pendingRequests.set(id, key);
         record.queuedRequests.set(id, key);
       }
@@ -193,7 +258,14 @@ export function installColdLoadProbes(input: {
           owner[method] = function (this: ChatProbeOwner, ...args: unknown[]) {
             const connected = this.isConnected;
             if (connected && method === "requestUpdate") {
-              chatProbe.producer(record, `requestUpdate:${String(args[0] ?? "-")}`);
+              const property = args[0];
+              const propertyLabel =
+                typeof property === "string" ||
+                typeof property === "number" ||
+                typeof property === "symbol"
+                  ? String(property)
+                  : "-";
+              chatProbe.producer(record, `requestUpdate:${propertyLabel}`);
             }
             if (connected && method === "performUpdate") {
               record.publicationRequests = new Map(record.queuedRequests);
@@ -290,6 +362,8 @@ export function installColdLoadProbes(input: {
         ),
         producerStacks: Object.fromEntries(chatProducerStacks),
         requests: Object.fromEntries(chatRequests),
+        frameOrigins: Object.fromEntries(frameOrigins),
+        frameOriginCoverage: "captured-live-schedules-only; pre-live-frames-have-null-origin",
         passes: chatPasses,
         pendingProducers: [...chatOwners.values()].map((record) => ({
           tag: record.host.localName,
@@ -351,8 +425,8 @@ export function installColdLoadProbes(input: {
       }
       if (
         solidSidebarOwner &&
-        [...chatOwners.keys()].some((host) => host.localName === "openclaw-chat-page") &&
-        [...chatOwners.keys()].some((host) => host.localName === "openclaw-chat-pane")
+        [...chatOwners.keys()].some((chatHost) => chatHost.localName === "openclaw-chat-page") &&
+        [...chatOwners.keys()].some((chatHost) => chatHost.localName === "openclaw-chat-pane")
       ) {
         sidebarRegistration.restore();
       }
@@ -373,6 +447,7 @@ export function installColdLoadProbes(input: {
     () => {
       sidebarRegistration.restore();
       chatProbe.restore();
+      frameProbe.restore();
     },
     { once: true },
   );
@@ -529,18 +604,25 @@ export function installColdLoadProbes(input: {
                 ms: performance.now() - request.at,
               });
             }
-            if (liveEvent) {
-              const deliveredAtMs = performance.now() - liveStartedAt;
+            const delivery = liveEvent
+              ? { ...liveEvent, deliveredAtMs: performance.now() - liveStartedAt }
+              : null;
+            if (delivery) {
               const previous = liveDeliveries.at(-1);
               liveDeliveries.push({
-                ...liveEvent,
-                deliveredAtMs,
-                gapMs: previous ? deliveredAtMs - previous.deliveredAtMs : null,
+                ...delivery,
+                gapMs: previous ? delivery.deliveredAtMs - previous.deliveredAtMs : null,
               });
-              liveKind = liveEvent.kind;
-              liveEvents.set(liveEvent.kind, (liveEvents.get(liveEvent.kind) ?? 0) + 1);
+              liveKind = delivery.kind;
+              liveEvents.set(delivery.kind, (liveEvents.get(delivery.kind) ?? 0) + 1);
             }
-            dispatch(event);
+            const previousDelivery = activeLiveDelivery;
+            activeLiveDelivery = delivery;
+            try {
+              dispatch(event);
+            } finally {
+              activeLiveDelivery = previousDelivery;
+            }
             lastActivity = performance.now();
           },
           Math.max(0, nextFrameAt - performance.now()),
@@ -560,6 +642,7 @@ export function installColdLoadProbes(input: {
   Reflect.set(window, "__coldLoad", {
     startLive() {
       liveStartedAt = performance.now();
+      frameProbe.install();
       const sidebar = document.querySelector("openclaw-app-sidebar");
       sidebarRegistration.restore();
       chatProbe.install();
@@ -657,6 +740,7 @@ export function installColdLoadProbes(input: {
     },
     finishLive() {
       liveFinishedAt = performance.now();
+      frameProbe.restore();
       sidebarRegistration.restore();
       chatProbe.restore();
       if (solidSidebarOwner) {
