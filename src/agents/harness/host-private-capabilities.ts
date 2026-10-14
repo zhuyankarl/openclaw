@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   ReplyToolAuthorityOverlay,
+  ReplyToolAuthorityRequester,
   ReplyToolAuthorityPreparation,
   ReplyToolAuthorityRoute,
 } from "../../auto-reply/reply/reply-run-registry.contracts.js";
@@ -137,7 +138,7 @@ export function prepareQuestionGatewayDispatch(
 }
 
 type CallerReadPreparer = (
-  caller: ReplyToolAuthorityOverlay | undefined,
+  caller: ReplyToolAuthorityOverlay | ReplyToolAuthorityRequester | undefined,
   fingerprint: string,
   route: ReplyToolAuthorityRoute | undefined,
   assertCurrent: () => void,
@@ -211,7 +212,7 @@ export function bindReplyToolAuthorityCallerRead(
 
 export async function prepareReplyToolAuthorityCallerRead(
   projector: object | undefined,
-  caller: ReplyToolAuthorityOverlay | undefined,
+  caller: ReplyToolAuthorityOverlay | ReplyToolAuthorityRequester | undefined,
   fingerprint: string | undefined,
   route: ReplyToolAuthorityRoute | undefined,
   assertCurrent: () => void,

@@ -427,6 +427,7 @@ async function callInProcessGatewayToolBound<T>(
       ? {
           agentId: caller.agentId,
           sessionKey: caller.sessionKey,
+          requesterOrigin: caller.requesterOrigin,
           assertCurrent: assertCallerCurrent,
         }
       : undefined;

@@ -427,6 +427,10 @@ export function createReplyOperation(params: {
     bindToolAuthoritySnapshotAsync: toolAuthority.bindToolAuthoritySnapshotAsync,
     projectToolAuthorityFingerprint: toolAuthority.projectToolAuthorityFingerprint,
     projectToolAuthorityFingerprintAsync: toolAuthority.projectToolAuthorityFingerprintAsync,
+    projectRequesterToolAuthorityFingerprint:
+      toolAuthority.projectRequesterToolAuthorityFingerprint,
+    projectRequesterToolAuthorityFingerprintAsync:
+      toolAuthority.projectRequesterToolAuthorityFingerprintAsync,
     bindToolAuthorityRoute: toolAuthority.bindToolAuthorityRoute,
     bindToolAuthorityRouteAsync: toolAuthority.bindToolAuthorityRouteAsync,
     updateSessionId(nextSessionId) {

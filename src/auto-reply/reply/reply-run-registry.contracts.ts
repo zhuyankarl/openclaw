@@ -1,10 +1,12 @@
 import type { AdmittedRunOperatorAuthority } from "../../agents/admitted-run-context.js";
 import type { CurrentInboundPromptContext } from "../../agents/internal-runtime-context.js";
 import type { ReplyExpectation } from "../../agents/reply-completion.js";
+import type { RequesterOrigin } from "../../agents/requester-origin.js";
 import type { ScheduledToolPolicyContext } from "../../agents/scheduled-tool-policy.js";
 import type { TrustedSubagentCompletionHandoff } from "../../agents/subagents/announce/subagent-announce-handoff.js";
 import type { ChatType } from "../../channels/chat-type.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { GroupToolPolicyConfig } from "../../config/types.tools.js";
 import type { GatewayUiCommandTarget } from "../../gateway/ui-command-target.types.js";
 import type { ImageContent } from "../../llm/types.js";
@@ -116,6 +118,12 @@ export type ReplyToolAuthorityOverlay = Readonly<{
   toolBindings?: Readonly<Record<string, unknown>>;
 }>;
 
+/** Fresh delegation facts projected at its destination, separate from a source tool ceiling. */
+export type ReplyToolAuthorityRequester = Readonly<{
+  requesterOrigin: RequesterOrigin;
+  config: OpenClawConfig;
+}>;
+
 type ReplyTurnParticipantInput = Pick<
   ReplyToolAuthorityOverlay,
   "operatorAuthority" | "senderId" | "senderName" | "gatewayUiCommandTarget"
@@ -135,6 +143,11 @@ export type ReplyToolAuthoritySnapshot = Readonly<{
   fingerprintAsync?(route?: ReplyToolAuthorityRoute): Promise<string>;
   projectAsync?(
     overlay: ReplyToolAuthorityOverlay,
+    route: ReplyToolAuthorityRoute,
+  ): Promise<string>;
+  projectRequester?(requester: ReplyToolAuthorityRequester, route: ReplyToolAuthorityRoute): string;
+  projectRequesterAsync?(
+    requester: ReplyToolAuthorityRequester,
     route: ReplyToolAuthorityRoute,
   ): Promise<string>;
 }>;
@@ -435,6 +448,14 @@ export type ReplyOperation = {
   projectToolAuthorityFingerprintAsync(
     this: void,
     overlay: ReplyToolAuthorityOverlay,
+  ): Promise<string | undefined>;
+  /** Legacy snapshots without fresh-requester projection cannot admit delegated steering. */
+  projectRequesterToolAuthorityFingerprint?(
+    requester: ReplyToolAuthorityRequester,
+  ): string | undefined;
+  projectRequesterToolAuthorityFingerprintAsync?(
+    this: void,
+    requester: ReplyToolAuthorityRequester,
   ): Promise<string | undefined>;
   /** Prepare fingerprint and projection together for the final concrete attempt route. */
   /** @deprecated Use bindToolAuthorityRouteAsync. */

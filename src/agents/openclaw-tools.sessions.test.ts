@@ -164,6 +164,7 @@ describe("sessions tools", () => {
     });
     expect(calls.some((request) => request.method === "agent")).toBe(false);
     const queueMessage = await activeRun(targetKey, {
+      config: TEST_CONFIG,
       sessionId: "active-target",
       sourceReplyDeliveryMode: "automatic",
     });
@@ -631,7 +632,10 @@ describe("sessions tools", () => {
     async ({ key, rejects, deliveryMode, streaming, reason }) => {
       await seedSession("agent:re-portal:main");
       await seedSession(key, "caller-active-session");
+      const caller = createSessionsSendTestCaller("agent:re-portal:main");
+      const config = cloneTestConfig();
       const queueMessage = await activeRun(key, {
+        config,
         rejects,
         streaming,
         sourceReplyDeliveryMode: deliveryMode,
@@ -639,18 +643,16 @@ describe("sessions tools", () => {
       mockGatewayResponses({
         agent: { runId: "fallback-run", status: "accepted", acceptedAt: 2000 },
       });
-      const result = await withGatewayToolCallerIdentity(
-        createSessionsSendTestCaller("agent:re-portal:main"),
-        () =>
-          getSessionTool("sessions_send", {
-            agentSessionKey: "agent:re-portal:main",
-            agentChannel: "telegram",
-            config: cloneTestConfig(),
-          }).execute("active-send", {
-            sessionKey: key,
-            message: "[TASK-COMPLETE] occupancy ready",
-            timeoutSeconds: 0,
-          }),
+      const result = await withGatewayToolCallerIdentity(caller, () =>
+        getSessionTool("sessions_send", {
+          agentSessionKey: "agent:re-portal:main",
+          agentChannel: "telegram",
+          config,
+        }).execute("active-send", {
+          sessionKey: key,
+          message: "[TASK-COMPLETE] occupancy ready",
+          timeoutSeconds: 0,
+        }),
       );
       expect(result.details).toMatchObject({
         status: "error",
@@ -673,6 +675,7 @@ describe("sessions tools", () => {
         expect(queuedText).toContain("[Inter-session message]");
         expect(queuedText).toContain("[TASK-COMPLETE] occupancy ready");
         expect(queueMessage).toHaveBeenCalledWith(queuedText, {
+          toolAuthorityFingerprint: expect.any(String),
           steeringMode: "all",
           debounceMs: 0,
           deliveryTimeoutMs: 30_000,
@@ -704,6 +707,7 @@ describe("sessions tools", () => {
       { sessionId, updatedAt: 1, spawnedBy: requesterKey, spawnDepth: 1 },
     );
     const queueMessage = await activeRun(targetKey, {
+      config: TEST_CONFIG,
       sessionId,
       requesterSessionKey: requesterKey,
     });
@@ -758,7 +762,10 @@ describe("sessions tools", () => {
           debounceMs: 0,
           deliveryTimeoutMs: 30_000,
           waitForTranscriptCommit: false,
-          requesterOrigin: caller.requesterOrigin,
+          requesterToolAuthority: {
+            requesterOrigin: caller.requesterOrigin,
+            config: TEST_CONFIG,
+          },
           onQueueAccepted: expect.any(Function),
           userTurnTranscriptRecorder: expect.any(Object),
         },
@@ -798,6 +805,7 @@ describe("sessions tools", () => {
     await seedSession("agent:re-portal:main");
     await seedSession(ordinaryActiveKey, "ordinary-active-session");
     const queueMessage = await activeRun(ordinaryActiveKey, {
+      config: TEST_CONFIG,
       sessionId: "ordinary-active-session",
       sourceReplyDeliveryMode: "automatic",
     });
@@ -851,7 +859,12 @@ describe("sessions tools", () => {
     };
     await upsertSessionEntryCore(parentScope, { sessionId: "durable-parent", updatedAt: 1 });
     await upsertSessionEntryCore(runScope, { sessionId: "caller-active-session", updatedAt: 1 });
+    const config: OpenClawConfig = {
+      ...cloneTestConfig(),
+      session: { store: path.join(dir, "agents", "{agentId}", "sessions", "sessions.json") },
+    };
     const queueMessage = await activeRun(runScopedCallerKey, {
+      config,
       streaming: false,
       requesterSessionKey: requesterKey,
     });
@@ -874,10 +887,7 @@ describe("sessions tools", () => {
     const tool = getSessionTool("sessions_send", {
       agentSessionKey: requesterKey,
       agentChannel: "telegram",
-      config: {
-        ...cloneTestConfig(),
-        session: { store: path.join(dir, "agents", "{agentId}", "sessions", "sessions.json") },
-      },
+      config,
     });
 
     const result = await withGatewayToolCallerIdentity(
@@ -931,7 +941,12 @@ describe("sessions tools", () => {
       { agentId: "leasing-ops", sessionKey: runScopedTargetKey, storePath },
       { sessionId: targetSessionId, updatedAt: 1 },
     );
+    const config: OpenClawConfig = {
+      ...cloneTestConfig(),
+      session: { ...cloneTestConfig().session, store: storePath },
+    };
     const queueMessage = await activeRun(runScopedTargetKey, {
+      config,
       requesterSessionKey: requesterKey,
       sessionId: targetSessionId,
       streaming: false,
@@ -955,13 +970,7 @@ describe("sessions tools", () => {
       agentSessionKey: requesterKey,
       expectedTargetSessionId: targetSessionId,
       idempotencyKey: "worker-session-send:exact-cron-operation",
-      config: {
-        ...cloneTestConfig(),
-        session: {
-          ...cloneTestConfig().session,
-          store: storePath,
-        },
-      },
+      config,
       callGateway: callGatewayMock,
     });
 

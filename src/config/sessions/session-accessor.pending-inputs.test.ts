@@ -190,9 +190,15 @@ describe("accepted input custody", () => {
       requesterOrigin: { ...requesterOrigin, senderId: "alice" },
     };
     expect(readSessionPendingInputRequesterOrigin(receipt)).toMatchObject(requesterOrigin);
+    const captured = readSessionPendingInputRequesterOrigin(receipt);
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(captured?.sessionKey).toBe(requesterOrigin.sessionKey);
     expect(readSessionPendingInputRequesterOrigin({ ...receipt })).toBeUndefined();
     receipt.finish("interrupted");
     await receipt.settled?.();
+    expect(() => readSessionPendingInputRequesterOrigin(receipt)).toThrow(
+      SessionPendingInputCustodyError,
+    );
     rotateAgentEventLifecycleGeneration();
     const recovered = await stage("requester-custody", {
       message: input,

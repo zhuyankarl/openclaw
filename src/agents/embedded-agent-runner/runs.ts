@@ -489,7 +489,7 @@ const queueEmbeddedAgentMessageAsync = createEmbeddedMessageInjectionQueue(async
     text = (await sourcePreparation?.prepareMessage?.()) ?? text;
     assertCurrent();
     const authority =
-      options?.toolAuthorityOverlay || sourcePreparation
+      options?.toolAuthorityOverlay || options?.requesterToolAuthority || sourcePreparation
         ? await prepareEmbeddedInjectionAuthority(sessionId, options, canInject, sourcePreparation)
         : undefined;
     assertCurrent();
@@ -651,12 +651,19 @@ function prepareEmbeddedAgentQueueMessage(
     return reject("no_active_run");
   }
   const registration = ACTIVE_EMBEDDED_RUN_REGISTRATIONS.get(handle);
-  if ((sourceCanInject || options?.requesterOrigin) && handle.messageInjectionV2?.version !== 2) {
+  if (
+    (sourceCanInject || options?.requesterToolAuthority) &&
+    handle.messageInjectionV2?.version !== 2
+  ) {
     return reject("guarded_injection_unsupported");
   }
-  if (options?.requesterOrigin) {
+  if (options?.requesterToolAuthority) {
     try {
-      if (!registration?.toolAuthority?.acceptsRequesterOrigin(options.requesterOrigin)) {
+      if (
+        !registration?.toolAuthority?.acceptsRequesterOrigin(
+          options.requesterToolAuthority.requesterOrigin,
+        )
+      ) {
         return reject("requester_origin_mismatch");
       }
     } catch {
@@ -694,23 +701,29 @@ function prepareEmbeddedAgentQueueMessage(
   const operation = resolveActiveReplyOperationForSessionId(sessionId);
   const ownedOperation =
     operation && getAttachedBackend(operation) === handle ? operation : undefined;
-  const {
-    toolAuthorityOverlay,
-    requesterOrigin: _requesterOrigin,
-    ...backendOptions
-  } = options ?? { steeringMode: "all" as const };
-  if (toolAuthorityOverlay) {
-    // An overlay is caller evidence; a supplied raw hash cannot override it.
+  const { toolAuthorityOverlay, requesterToolAuthority, ...backendOptions } = options ?? {
+    steeringMode: "all" as const,
+  };
+  if (toolAuthorityOverlay || requesterToolAuthority) {
+    // Prepared caller evidence takes precedence over a supplied raw hash.
     try {
       backendOptions.toolAuthorityFingerprint = prepared
         ? prepared.fingerprint
-        : registration?.toolAuthority
-          ? registration.toolAuthority.project(toolAuthorityOverlay)
-          : ownedOperation?.projectToolAuthorityFingerprint(toolAuthorityOverlay);
+        : requesterToolAuthority
+          ? registration?.toolAuthority?.projectRequester?.(requesterToolAuthority)
+          : toolAuthorityOverlay &&
+            (registration?.toolAuthority
+              ? registration.toolAuthority.project(toolAuthorityOverlay)
+              : ownedOperation?.projectToolAuthorityFingerprint(toolAuthorityOverlay));
     } catch {
       backendOptions.toolAuthorityFingerprint = undefined;
     }
-    if (!backendOptions.toolAuthorityFingerprint) {
+    if (
+      !backendOptions.toolAuthorityFingerprint ||
+      (requesterToolAuthority &&
+        backendOptions.toolAuthorityFingerprint !==
+          (handle.toolAuthorityFingerprint ?? ownedOperation?.toolAuthorityFingerprint))
+    ) {
       return reject("tool_authority_mismatch");
     }
   }
@@ -723,12 +736,14 @@ function prepareEmbeddedAgentQueueMessage(
     const activeFingerprint = normalizeOptionalString(handle.toolAuthorityFingerprint);
     // Projected caller authority takes precedence over raw route-mismatch proof.
     const pendingInputAuthorityProven =
-      (!toolAuthorityOverlay || deliveryModeMismatch === "input_visibility_mismatch") &&
+      ((!toolAuthorityOverlay && !requesterToolAuthority) ||
+        deliveryModeMismatch === "input_visibility_mismatch") &&
       (deliveryModeMismatch !== "input_visibility_mismatch" ||
         handle.messageInjectionV2?.version === 2) &&
       activeFingerprint &&
       (normalizeOptionalString(backendOptions.toolAuthorityFingerprint) === activeFingerprint ||
         (!toolAuthorityOverlay &&
+          !requesterToolAuthority &&
           normalizeOptionalString(options?.pendingInputAuthorityFingerprint) ===
             activeFingerprint));
     diag.debug(`queue message failed: sessionId=${sessionId} reason=${deliveryModeMismatch}`);

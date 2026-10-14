@@ -1,5 +1,6 @@
 import { afterEach, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import {
   createOperationalRunInstanceRef,
@@ -40,14 +41,15 @@ export async function setSessionsSendTestActiveRun(
   sessionId: string,
   handle: EmbeddedAgentQueueHandle,
   sessionKey: string,
-  requesterSessionKey?: string,
+  requesterSessionKey: string | undefined,
+  config: OpenClawConfig,
 ) {
   const caller = createSessionsSendTestCaller(requesterSessionKey);
   const agentId = parseAgentSessionKey(sessionKey)?.agentId ?? "main";
   const runId = handle.runId ?? `sessions-target:${sessionId}`;
   const sessionFile = `/tmp/${sessionId}.jsonl`;
   const admission = prepareAgentRunAdmission({
-    cfg: {},
+    cfg: config,
     operationalRunInstance: createOperationalRunInstanceRef(runId),
     facts: {
       agentId,
@@ -68,7 +70,7 @@ export async function setSessionsSendTestActiveRun(
           agentId,
           sessionFile,
           workspaceDir: "/tmp/sessions-send-test",
-          config: {},
+          config,
           provider: "openai",
           modelId: "gpt-test",
           requesterOrigin: caller.requesterOrigin,
@@ -102,12 +104,13 @@ export async function setSessionsSendTestActiveRun(
 export async function activeRun(
   sessionKey: string,
   options: {
+    config: OpenClawConfig;
     sessionId?: string;
     requesterSessionKey?: string;
     streaming?: boolean;
     sourceReplyDeliveryMode?: "automatic" | "message_tool_only";
     rejects?: boolean;
-  } = {},
+  },
 ) {
   const queueMessage = vi.fn(async (_text: string, _options?: EmbeddedAgentQueueMessageOptions) => {
     if (options.rejects) {
@@ -135,6 +138,7 @@ export async function activeRun(
     },
     sessionKey,
     options.requesterSessionKey,
+    options.config,
   );
   return queueMessage;
 }

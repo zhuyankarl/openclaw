@@ -7,6 +7,7 @@ import type {
   ReplyBackendQueueMessageOptions,
   ReplyMessageInjectionOptions,
   ReplyToolAuthorityOverlay,
+  ReplyToolAuthorityRequester,
   ReplyTurnParticipants,
   ReplyBackendQueueMessageResult,
   ReplyBackendMessageInjection,
@@ -136,7 +137,7 @@ export type EmbeddedAgentQueueMessageOptions = ReplyBackendQueueMessageOptions;
 
 export type EmbeddedAgentMessageInjectionOptions = ReplyMessageInjectionOptions & {
   /** Consumed by the embedded run owner, never forwarded to its backend. */
-  requesterOrigin?: RequesterOrigin;
+  requesterToolAuthority?: ReplyToolAuthorityRequester;
 };
 
 export type PreparedEmbeddedAgentQueueMessage =
@@ -177,6 +178,8 @@ export type EmbeddedRunToolAuthorityBinding = (registration: {
   acceptsRequesterOrigin: (origin: RequesterOrigin) => boolean;
   project: (overlay: ReplyToolAuthorityOverlay) => string | undefined;
   projectAsync: (overlay: ReplyToolAuthorityOverlay) => Promise<string | undefined>;
+  projectRequester?: (requester: ReplyToolAuthorityRequester) => string | undefined;
+  projectRequesterAsync?: (requester: ReplyToolAuthorityRequester) => Promise<string | undefined>;
   assertActive: () => void;
   personalToolParticipants?: ReplyTurnParticipants;
 };

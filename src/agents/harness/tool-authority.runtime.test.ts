@@ -258,7 +258,7 @@ describe("host-prepared embedded tool authority", () => {
             : queueGuardedEmbeddedAgentMessageWithOutcomeAsync(
                 sessionId,
                 "Apply the correction",
-                { requesterOrigin: origin },
+                { requesterToolAuthority: { requesterOrigin: origin, config: attempt.config } },
                 () => true,
               );
         await entered.promise;

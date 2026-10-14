@@ -414,6 +414,7 @@ export function sanitizeChatHistoryMessage(
     openClawMeta &&
     ("upstreamUserText" in openClawMeta ||
       "sessionSendDelivery" in openClawMeta ||
+      "requesterOrigin" in openClawMeta ||
       "media" in openClawMeta)
   ) {
     // Codex retains the decorated upstream prompt for transcript reconstruction.
@@ -422,6 +423,8 @@ export function sanitizeChatHistoryMessage(
     delete projectedMeta.upstreamUserText;
     // Durable delivery facts contain private endpoint bindings, not display data.
     delete projectedMeta.sessionSendDelivery;
+    // Operational requester custody is independent of redacted display identity.
+    delete projectedMeta.requesterOrigin;
     if ("media" in projectedMeta) {
       projectedMeta.media = projectChatHistoryMediaFacts(projectedMeta.media);
       if (projectedMeta.media === undefined) {

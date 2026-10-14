@@ -6,6 +6,8 @@ import {
 } from "../../agents/harness/host-private-capabilities.js";
 import type {
   ReplyOperation,
+  ReplyToolAuthorityOverlay,
+  ReplyToolAuthorityRequester,
   ReplyToolAuthoritySnapshot,
   ReplyTurnParticipant,
   ReplyTurnParticipants,
@@ -137,6 +139,8 @@ type OperationToolAuthority = Pick<
   | "bindToolAuthoritySnapshotAsync"
   | "projectToolAuthorityFingerprint"
   | "projectToolAuthorityFingerprintAsync"
+  | "projectRequesterToolAuthorityFingerprint"
+  | "projectRequesterToolAuthorityFingerprintAsync"
   | "bindToolAuthorityRoute"
   | "bindToolAuthorityRouteAsync"
   | "setAutomaticFallbackRoute"
@@ -183,6 +187,67 @@ export function createReplyOperationToolAuthority(lifecycle: {
     fingerprint = initialFingerprint;
     participants = createReplyTurnParticipants(value.personalToolOwner);
   }
+
+  const project = (caller: ReplyToolAuthorityOverlay | ReplyToolAuthorityRequester) => {
+    if (!lifecycle.isOpen() || !snapshot || !route) {
+      return undefined;
+    }
+    try {
+      return normalizeOptionalString(
+        "requesterOrigin" in caller
+          ? snapshot.projectRequester?.(caller, route)
+          : snapshot.project(caller, route),
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const projectAsync = async (caller: ReplyToolAuthorityOverlay | ReplyToolAuthorityRequester) => {
+    if (!lifecycle.isOpen() || !snapshot || !route) {
+      return undefined;
+    }
+    const selected = snapshot;
+    const selectedRoute = route;
+    const admittedFingerprint = fingerprint;
+    try {
+      const assertOwner = lifecycle.captureCurrent();
+      const assertCurrent = () => {
+        assertOwner();
+        if (
+          snapshot !== selected ||
+          route !== selectedRoute ||
+          fingerprint !== admittedFingerprint
+        ) {
+          throw new Error("Reply tool authority route changed during preparation");
+        }
+      };
+      const prepared = await prepareReplyToolAuthorityCallerRead(
+        "requesterOrigin" in caller ? selected.projectRequesterAsync : selected.projectAsync,
+        caller,
+        admittedFingerprint,
+        selectedRoute,
+        assertCurrent,
+      );
+      if (prepared) {
+        await prepared.prepareCurrent();
+        assertCurrent();
+        return admittedFingerprint;
+      }
+      const current = await (selected.fingerprintAsync?.(selectedRoute) ??
+        selected.fingerprint(selectedRoute));
+      assertCurrent();
+      const projected =
+        "requesterOrigin" in caller
+          ? await (selected.projectRequesterAsync?.(caller, selectedRoute) ??
+              selected.projectRequester?.(caller, selectedRoute))
+          : await (selected.projectAsync?.(caller, selectedRoute) ??
+              selected.project(caller, selectedRoute));
+      assertCurrent();
+      return current === admittedFingerprint ? normalizeOptionalString(projected) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
 
   const result: OperationToolAuthority = {
     get requesterPrincipalKey() {
@@ -241,58 +306,10 @@ export function createReplyOperationToolAuthority(lifecycle: {
         throw error;
       }
     },
-    projectToolAuthorityFingerprint(overlay) {
-      if (!lifecycle.isOpen() || !snapshot || !route) {
-        return undefined;
-      }
-      try {
-        return normalizeOptionalString(snapshot.project(overlay, route));
-      } catch {
-        return undefined;
-      }
-    },
-    async projectToolAuthorityFingerprintAsync(overlay) {
-      if (!lifecycle.isOpen() || !snapshot || !route) {
-        return undefined;
-      }
-      const selected = snapshot;
-      const selectedRoute = route;
-      const admittedFingerprint = fingerprint;
-      try {
-        const assertOwner = lifecycle.captureCurrent();
-        const assertCurrent = () => {
-          assertOwner();
-          if (
-            snapshot !== selected ||
-            route !== selectedRoute ||
-            fingerprint !== admittedFingerprint
-          ) {
-            throw new Error("Reply tool authority route changed during preparation");
-          }
-        };
-        const prepared = await prepareReplyToolAuthorityCallerRead(
-          selected.projectAsync,
-          overlay,
-          admittedFingerprint,
-          selectedRoute,
-          assertCurrent,
-        );
-        if (prepared) {
-          await prepared.prepareCurrent();
-          assertCurrent();
-          return admittedFingerprint;
-        }
-        const current = await (selected.fingerprintAsync?.(selectedRoute) ??
-          selected.fingerprint(selectedRoute));
-        assertCurrent();
-        const projected = await (selected.projectAsync?.(overlay, selectedRoute) ??
-          selected.project(overlay, selectedRoute));
-        assertCurrent();
-        return current === admittedFingerprint ? normalizeOptionalString(projected) : undefined;
-      } catch {
-        return undefined;
-      }
-    },
+    projectToolAuthorityFingerprint: project,
+    projectToolAuthorityFingerprintAsync: projectAsync,
+    projectRequesterToolAuthorityFingerprint: project,
+    projectRequesterToolAuthorityFingerprintAsync: projectAsync,
     bindToolAuthorityRoute(value) {
       if (!lifecycle.isOpen() || !snapshot || !lifecycle.ownsRunSlot()) {
         throw new Error("Reply operation has no active tool authority snapshot");
@@ -343,7 +360,9 @@ export function createReplyOperationToolAuthority(lifecycle: {
       };
       assertCurrent();
       return await prepareReplyToolAuthorityCallerRead(
-        selected?.projectAsync,
+        caller && "requesterOrigin" in caller
+          ? selected?.projectRequesterAsync
+          : selected?.projectAsync,
         caller,
         expected,
         selectedRoute,

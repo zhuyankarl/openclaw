@@ -291,13 +291,18 @@ export async function prepareEmbeddedInjectionAuthority(
     assertCurrent();
     await sourcePreparation?.prepareCurrent();
     const overlay = options?.toolAuthorityOverlay;
-    const fingerprint = overlay
-      ? await (
-          registration?.toolAuthority
-            ? registration.toolAuthority.projectAsync(overlay)
-            : ownedOperation?.projectToolAuthorityFingerprintAsync(overlay)
-        )?.catch(() => undefined)
-      : options?.toolAuthorityFingerprint;
+    const requester = options?.requesterToolAuthority;
+    const fingerprint = requester
+      ? await registration?.toolAuthority
+          ?.projectRequesterAsync?.(requester)
+          ?.catch(() => undefined)
+      : overlay
+        ? await (
+            registration?.toolAuthority
+              ? registration.toolAuthority.projectAsync(overlay)
+              : ownedOperation?.projectToolAuthorityFingerprintAsync(overlay)
+          )?.catch(() => undefined)
+        : options?.toolAuthorityFingerprint;
     assertCurrent();
     return fingerprint;
   };
@@ -311,11 +316,14 @@ export async function prepareEmbeddedInjectionAuthority(
           assertCurrent();
           sourcePreparation?.compatAssertCurrent?.();
           const overlay = options?.toolAuthorityOverlay;
-          const projected = overlay
-            ? registration?.toolAuthority
-              ? registration.toolAuthority.project(overlay)
-              : ownedOperation?.projectToolAuthorityFingerprint(overlay)
-            : options?.toolAuthorityFingerprint;
+          const requester = options?.requesterToolAuthority;
+          const projected = requester
+            ? registration?.toolAuthority?.projectRequester?.(requester)
+            : overlay
+              ? registration?.toolAuthority
+                ? registration.toolAuthority.project(overlay)
+                : ownedOperation?.projectToolAuthorityFingerprint(overlay)
+              : options?.toolAuthorityFingerprint;
           if (projected !== fingerprint) {
             throw new Error("Queued caller tool authority changed during preparation");
           }
@@ -354,16 +362,22 @@ function bindEmbeddedMessageInjection(
       return false;
     }
     if (
-      options?.requesterOrigin &&
-      !registration?.toolAuthority?.acceptsRequesterOrigin(options.requesterOrigin)
+      options?.requesterToolAuthority &&
+      !registration?.toolAuthority?.acceptsRequesterOrigin(
+        options.requesterToolAuthority.requesterOrigin,
+      )
     ) {
       return false;
     }
     const overlay = options?.toolAuthorityOverlay;
-    if (overlay) {
-      const projected = registration?.toolAuthority
-        ? registration.toolAuthority.project(overlay)
-        : ownedOperation?.projectToolAuthorityFingerprint(overlay);
+    const requester = options?.requesterToolAuthority;
+    if (overlay || requester) {
+      const projected = requester
+        ? registration?.toolAuthority?.projectRequester?.(requester)
+        : overlay &&
+          (registration?.toolAuthority
+            ? registration.toolAuthority.project(overlay)
+            : ownedOperation?.projectToolAuthorityFingerprint(overlay));
       if (
         !projected ||
         projected !== (handle.toolAuthorityFingerprint ?? ownedOperation?.toolAuthorityFingerprint)

@@ -96,6 +96,18 @@ describe("typed restart recovery operator admission", () => {
     { source: "legacy claim", operator: false, requester: "absent", expected: "scope refusal" },
     { source: "matching requester", operator: true, requester: "matching", expected: "accepted" },
     {
+      source: "native queued requester",
+      operator: true,
+      requester: "matching",
+      expected: "accepted",
+    },
+    {
+      source: "native queued mismatched requester",
+      operator: true,
+      requester: "different",
+      expected: "identity refusal",
+    },
+    {
       source: "mismatched requester",
       operator: true,
       requester: "different",
@@ -109,7 +121,7 @@ describe("typed restart recovery operator admission", () => {
     },
   ] as const)(
     "applies recovery admission and the actual admin-method fence to $source",
-    async ({ operator, requester, expected }) => {
+    async ({ source, operator, requester, expected }) => {
       await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
         const context = createDirectChatContext({ trackExecution: trackAsyncWork });
         const profile = ensureProfileForEmail("runtime-recovery@example.test");
@@ -175,10 +187,26 @@ describe("typed restart recovery operator admission", () => {
           expectedExistingSessionId: fixture.target.sessionId,
           idempotencyKey: fixture.target.recoveryRunId,
         };
-        const options = {
-          restartRecoveryOperatorTarget: operator ? fixture.target : undefined,
-          restartRecoveryRequesterTarget: requester !== "absent" ? fixture.target : undefined,
-        };
+        const queued = source.startsWith("native queued");
+        const retained = queued
+          ? expectDefined(await fixture.restore(), "queued source authority")
+          : undefined;
+        const options = queued
+          ? {
+              operatorRunAuthority: retained?.authority,
+              agentToolCaller: {
+                agentId: "main",
+                sessionKey: fixture.target.sessionKey,
+                requesterOrigin: {
+                  sessionKey: fixture.target.sessionKey,
+                  operatorProfileId: requester === "matching" ? profile.id : "another-requester",
+                },
+              },
+            }
+          : {
+              restartRecoveryOperatorTarget: operator ? fixture.target : undefined,
+              restartRecoveryRequesterTarget: requester !== "absent" ? fixture.target : undefined,
+            };
         try {
           const result = runtime.recovery.dispatchAgent(request, undefined, options);
           if (expected === "accepted") {
@@ -192,6 +220,7 @@ describe("typed restart recovery operator admission", () => {
             expect(startTurn).toHaveBeenCalledOnce();
           }
         } finally {
+          retained?.release();
           runtime.close();
         }
       });

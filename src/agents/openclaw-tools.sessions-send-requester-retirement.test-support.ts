@@ -178,6 +178,7 @@ export function registerSessionsSendRequesterRetirementTests({
           handle,
           childSessionKey,
           requesterSessionKey,
+          config,
         );
       } else {
         await addSubagentRunForTests({

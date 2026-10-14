@@ -160,7 +160,7 @@ describe("sessions_send direct queue source authority", () => {
                 },
               }),
         };
-        await setSessionsSendTestActiveRun(sessionId, handle, sessionKey, requesterSessionKey);
+        await setSessionsSendTestActiveRun(sessionId, handle, sessionKey, requesterSessionKey, cfg);
         const instance = createOperationalRunInstanceRef("queue-source-run");
         const authority = claimAgentRunDelegatedAuthority(instance);
         // Resolution is read-only; the real queue and SQLite transcript perform every effect.
