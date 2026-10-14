@@ -97,7 +97,6 @@ export function installColdLoadProbes(input: {
   let activeFrameOrigin: FrameOrigin | null = null;
   const frameOrigins = new Map<number, FrameOrigin>();
   const frameProbe = {
-    // oxlint-disable-next-line typescript/unbound-method -- Preserve the native function identity; the tap forwards its receiver and restores it.
     original: window.requestAnimationFrame,
     request(this: Window, callback: FrameRequestCallback): number {
       if (frameOrigins.size >= 5000) {
@@ -124,7 +123,6 @@ export function installColdLoadProbes(input: {
       return origin.frameId;
     },
     install() {
-      // oxlint-disable-next-line typescript/unbound-method -- Install the native-receiver tap on Window, matching requestAnimationFrame's call boundary.
       window.requestAnimationFrame = frameProbe.request;
     },
     restore() {

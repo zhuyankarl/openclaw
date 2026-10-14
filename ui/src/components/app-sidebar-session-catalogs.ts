@@ -10,12 +10,37 @@ import { t } from "../i18n/index.ts";
 import { formatUiError } from "../lib/format-error.ts";
 import { formatRelativeTimestamp } from "../lib/format.ts";
 import { pathDisplayName } from "../lib/path-display.ts";
+import { isSessionRunActive } from "../lib/session-run-state.ts";
 import type {
   CatalogSessionContinuedDetail,
   CatalogSessionKey,
 } from "../lib/sessions/catalog-key.ts";
 import { buildCatalogSessionKey, parseCatalogSessionKey } from "../lib/sessions/catalog-key.ts";
 import type { SidebarSessionHovercardRow } from "./app-sidebar-session-types.ts";
+
+export function catalogSessionRowsByKey(rows: readonly GatewaySessionRow[]) {
+  const byKey = new Map<string, GatewaySessionRow>();
+  for (const row of rows) {
+    if (!byKey.has(row.key)) {
+      byKey.set(row.key, row);
+    }
+  }
+  return byKey;
+}
+
+export function catalogSessionActivity(
+  sessions: readonly SessionCatalogSession[],
+  liveRowsByKey: ReadonlyMap<string, GatewaySessionRow>,
+) {
+  const rows = sessions.flatMap((session) => {
+    const row = session.sessionKey ? liveRowsByKey.get(session.sessionKey) : undefined;
+    return row ? [row] : [];
+  });
+  return {
+    running: rows.some(isSessionRunActive),
+    unread: rows.some((row) => row.unread === true),
+  };
+}
 
 export function formatSidebarTimestamp(timestampMs: number | null | undefined): string {
   const now = Date.now();
