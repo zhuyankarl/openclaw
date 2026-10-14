@@ -43,8 +43,10 @@ export class SidebarPeopleController implements ReactiveController {
 
   constructor(private readonly host: AppSidebarSessionNavigationElement) {
     host.addController(this);
-    this.activityExpiry = createPresenceActivityController(host, () =>
-      host.connected ? sidebarPresenceActivityViewers(host) : [],
+    this.activityExpiry = createPresenceActivityController(
+      host,
+      () => (host.connected ? sidebarPresenceActivityViewers(host) : []),
+      () => host.refreshPresencePresentation(),
     );
     new SubscriptionsController(host)
       .effect(
