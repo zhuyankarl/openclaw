@@ -38,7 +38,7 @@ import type {
 } from "./app-sidebar-session-narration.ts";
 import { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import type { SessionListHost } from "./app-sidebar-session-render-types.ts";
-import { renderSessionTree, visibleSessionChildren } from "./app-sidebar-session-row-render.tsx";
+import { renderSessionTree } from "./app-sidebar-session-row-render.tsx";
 import {
   loadStoredHiddenSessionCatalogIds,
   loadStoredSidebarCatalogGrouping,
@@ -345,21 +345,6 @@ export class AppSidebarOwner extends AppSidebarSessionNavigationElement implemen
     }
   }
 
-  private visibleNarrationRowsInOrder(): SidebarRecentSession[] {
-    const rows: SidebarRecentSession[] = [];
-    const append = (session: SidebarRecentSession) => {
-      rows.push(session);
-      if (this.isSessionChildrenExpanded(session)) {
-        visibleSessionChildren({
-          session,
-          fullyShown: this.isSessionChildrenFullyShown(session.key),
-        }).forEach(append);
-      }
-    };
-    this.visibleSessionRowsInOrder().forEach(append);
-    return rows;
-  }
-
   private narrationSyncInput(): SidebarNarrationSyncInput {
     const gateway = this.context?.gateway.snapshot;
     return {
@@ -367,7 +352,7 @@ export class AppSidebarOwner extends AppSidebarSessionNavigationElement implemen
       connected: this.connected && gateway?.phase === "connected",
       connectionIdentity: gateway?.client ?? null,
       source: this.context?.sessions ?? null,
-      rows: this.visibleNarrationRowsInOrder(),
+      rows: this.visibleSessionTreeInOrder(),
       openSessionKey: isSessionRouteId(this.activeRouteId) ? this.getRouteSessionKey() : "",
       agentId: this.selectedAgentIdForSessions(),
     };
@@ -624,7 +609,11 @@ export class AppSidebarOwner extends AppSidebarSessionNavigationElement implemen
       <Show when={host().sidebarAgentsMode === "roster"} fallback={nativeList}>
         <SidebarAgentRoster
           host={host()}
-          active={host().navigationVisible}
+          active={
+            host().navigationVisible &&
+            host().navigationView === "sessions" &&
+            !host().contextualSidebar
+          }
           sections={sections()}
           empty={visibleSessions().length === 0}
           involvingMe={host().sessionInvolvingMeFilterActive}
