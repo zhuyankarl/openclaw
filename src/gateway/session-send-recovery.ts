@@ -1,5 +1,6 @@
 import { resolveNestedAgentLaneForSession } from "../agents/lanes.js";
 import { discoverRestartRecoveryStoreTargets } from "../agents/main-session-recovery/main-session-restart-recovery-shared.js";
+import { decodeRequesterOrigin } from "../agents/requester-origin.js";
 import type { AgentToolGatewayRequestCaller } from "../agents/tools/in-process-gateway.js";
 import {
   prepareSessionsSendCommunication,
@@ -13,6 +14,7 @@ import type { SessionPendingInput } from "../config/sessions/session-pending-inp
 import { withSessionTranscriptWriteAssertion } from "../config/sessions/transcript-write-context.js";
 import type { CommunicationEndpoint } from "../sessions/communication-admission.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
+import type { RestoredGatewayOperatorAuthority } from "./operator-run-recovery.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import {
   readSessionSendDelivery,
@@ -22,6 +24,7 @@ import {
 import { resolveGatewaySessionStoreTargetInWorker } from "./session-utils-store-worker.js";
 
 class SessionSendEndpointChangedError extends Error {}
+class SessionSendRequesterUnavailableError extends Error {}
 
 function matches(endpoint: CommunicationEndpoint, expected: SessionSendDeliveryEndpoint): boolean {
   return (
@@ -81,6 +84,7 @@ export async function recoverSessionSendDeliveries(
           continue;
         }
         let communication: Awaited<ReturnType<typeof prepareSessionsSendCommunication>> | undefined;
+        let operator: RestoredGatewayOperatorAuthority | undefined;
         try {
           const load = async (
             endpoint: SessionSendDeliveryEndpoint,
@@ -153,6 +157,43 @@ export async function recoverSessionSendDeliveries(
             communication!.assertCurrent();
           };
           guard();
+          const savedOrigin = input.message["__openclaw"]?.requesterOrigin;
+          const requesterOrigin = decodeRequesterOrigin(savedOrigin);
+          if (
+            (savedOrigin !== undefined && !requesterOrigin) ||
+            delivery.operatorSource === undefined
+          ) {
+            throw new SessionSendRequesterUnavailableError();
+          }
+          let accepted = false;
+          const assertRequesterCurrent = () => {
+            signal.throwIfAborted();
+            // Admission transfers custody to the turn. Pending consumption and
+            // closing this communication lease must not revoke accepted work.
+            if (!accepted) {
+              guard();
+            }
+          };
+          try {
+            if (delivery.operatorSource !== null) {
+              const { restoreGatewayQueuedOperatorRecovery } =
+                await import("./operator-run-recovery.js");
+              operator = await restoreGatewayQueuedOperatorRecovery({
+                source: delivery.operatorSource,
+                context,
+                assertCurrent: assertRequesterCurrent,
+              });
+            }
+            if (
+              requesterOrigin?.operatorProfileId &&
+              requesterOrigin.operatorProfileId !== operator?.authority.profileId
+            ) {
+              throw new SessionSendRequesterUnavailableError();
+            }
+          } catch (error) {
+            throw new SessionSendRequesterUnavailableError(undefined, { cause: error });
+          }
+          guard();
           await withSessionSendDelivery({ delivery, acceptedMessage: input.message }, () =>
             runtime.dispatchAgent(
               {
@@ -169,9 +210,21 @@ export async function recoverSessionSendDeliveries(
                 lane: resolveNestedAgentLaneForSession(delivery.target.sessionKey),
               },
               undefined,
-              { signal, assertAdmissionCurrent: guard },
+              {
+                signal,
+                assertAdmissionCurrent: assertRequesterCurrent,
+                operatorRunAuthority: operator?.authority,
+                agentToolCaller: requesterOrigin
+                  ? {
+                      agentId: delivery.source.agentId,
+                      sessionKey: delivery.source.sessionKey,
+                      requesterOrigin,
+                    }
+                  : undefined,
+              },
             ),
           );
+          accepted = true;
         } catch (error) {
           if (signal.aborted) {
             return;
@@ -183,13 +236,16 @@ export async function recoverSessionSendDeliveries(
             reason:
               error instanceof SessionSendEndpointChangedError
                 ? "the source or destination session was reset, archived, or replaced"
-                : error instanceof SessionCommunicationDeniedError
-                  ? "current session permissions do not allow automatic delivery"
-                  : "delivery admission was unavailable",
+                : error instanceof SessionSendRequesterUnavailableError
+                  ? "original requester authority is unavailable; submit a new request"
+                  : error instanceof SessionCommunicationDeniedError
+                    ? "current session permissions do not allow automatic delivery"
+                    : "delivery admission was unavailable",
           });
           // Preserve this exact saved input. No retries in a loop, replacement
           // sender task, synthetic steering, or stale approval/claim revival.
         } finally {
+          operator?.release();
           communication?.close();
         }
       }

@@ -268,7 +268,6 @@ export function registerReplyAdmissionCases({
       authorized.authorization,
       "session-backed retirement authority",
     );
-    onTestFinished(() => authority.release?.());
     duplicate.followupRun.operatorAuthority = createAdmittedRunOperatorAuthority({
       profileId,
       scopes,
